@@ -3,9 +3,14 @@
 import { useMemo, useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import BottomNavigation from "@/components/BottomNavigation";
+import SentenceCards from "@/components/SentenceCards";
 import SentenceForm from "@/components/SentenceForm";
 import { useAppData } from "@/hooks/useAppData";
-import { getSrsStatus, hasCloze, plainText } from "@/lib/srs";
+import {
+  getSrsStatus,
+  hasCloze,
+  plainText,
+} from "@/lib/srs";
 import type { PageName } from "@/types/app";
 
 const PAGE_TITLES: Record<PageName, string> = {
@@ -18,38 +23,31 @@ const PAGE_TITLES: Record<PageName, string> = {
 
 function getStatusLabel(
   status: ReturnType<typeof getSrsStatus>,
-): {
-  text: string;
-  className: string;
-} {
+) {
   if (status === "new") {
     return {
       text: "YENİ",
-      className:
-        "bg-sky-400/20 text-[#38bdf8]",
+      className: "bg-sky-400/20 text-[#38bdf8]",
     };
   }
 
   if (status === "due") {
     return {
       text: "TEKRAR",
-      className:
-        "bg-rose-500/20 text-[#f43f5e]",
+      className: "bg-rose-500/20 text-[#f43f5e]",
     };
   }
 
   if (status === "learning") {
     return {
       text: "ÖĞRENİLİYOR",
-      className:
-        "bg-yellow-500/20 text-[#eab308]",
+      className: "bg-yellow-500/20 text-[#eab308]",
     };
   }
 
   return {
     text: "✓",
-    className:
-      "bg-emerald-500/20 text-[#10b981]",
+    className: "bg-emerald-500/20 text-[#10b981]",
   };
 }
 
@@ -98,13 +96,10 @@ export default function Home() {
         )}
 
         {isLoaded && activePage === "kart" && (
-          <div className="empty-msg">
-            <div className="big-emoji">🗂️</div>
-
-            {appData.sentences.length === 0
-              ? "Henüz kart bulunmuyor."
-              : `${appData.sentences.length} kart hazır. Kart sistemi sonraki aşamada bağlanacak.`}
-          </div>
+          <SentenceCards
+            categories={appData.categories}
+            sentences={appData.sentences}
+          />
         )}
 
         {isLoaded && activePage === "study" && (
