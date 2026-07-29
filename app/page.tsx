@@ -5,6 +5,7 @@ import AppHeader from "@/components/AppHeader";
 import BottomNavigation from "@/components/BottomNavigation";
 import SentenceCards from "@/components/SentenceCards";
 import SentenceForm from "@/components/SentenceForm";
+import StudyPanel from "@/components/StudyPanel";
 import { useAppData } from "@/hooks/useAppData";
 import {
   getSrsStatus,
@@ -60,6 +61,7 @@ export default function Home() {
     isLoaded,
     addSentence,
     deleteSentence,
+    rateSentence,
     totalDue,
   } = useAppData();
 
@@ -103,13 +105,11 @@ export default function Home() {
         )}
 
         {isLoaded && activePage === "study" && (
-          <div className="empty-msg">
-            <div className="big-emoji">🎯</div>
-
-            {totalDue > 0
-              ? `Bugün ${totalDue} cümle tekrar bekliyor.`
-              : "Bugün tekrar bekleyen cümle yok."}
-          </div>
+          <StudyPanel
+            categories={appData.categories}
+            sentences={appData.sentences}
+            onRate={rateSentence}
+          />
         )}
 
         {isLoaded && activePage === "stat" && (
@@ -137,8 +137,7 @@ export default function Home() {
             </div>
 
             <div className="empty-msg">
-              Ayrıntılı istatistik sistemi sonraki aşamada
-              taşınacak.
+              Ayrıntılı istatistik sistemi sonraki aşamada taşınacak.
             </div>
           </>
         )}
@@ -171,10 +170,7 @@ export default function Home() {
 
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-bold">
-                            {hasCloze(sentence.de)
-                              ? "🧩 "
-                              : ""}
-
+                            {hasCloze(sentence.de) ? "🧩 " : ""}
                             {plainText(sentence.de)}
                           </div>
 

@@ -233,3 +233,11 @@ option {
   font-size: 11px;
   font-weight: 700;
 }
+.section-title {
+  margin: 8px 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
