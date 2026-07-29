@@ -106,6 +106,26 @@ textarea.input-field {
   line-height: 1.4;
 }
 
+select.input-field {
+  appearance: auto;
+}
+
+select.input-field:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+optgroup {
+  background: var(--bg);
+  color: var(--text-muted);
+  font-weight: bold;
+}
+
+option {
+  background: var(--card);
+  color: var(--text-main);
+}
+
 .flag-de {
   padding-left: 18px;
   background-image: linear-gradient(
@@ -122,7 +142,11 @@ textarea.input-field {
 
 .flag-tr {
   padding-left: 18px;
-  background-image: linear-gradient(to bottom, #e30a17 50%, #fff 50%);
+  background-image: linear-gradient(
+    to bottom,
+    #e30a17 50%,
+    #fff 50%
+  );
   background-position: left;
   background-size: 5px 100%;
   background-repeat: no-repeat;
@@ -170,4 +194,42 @@ textarea.input-field {
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-main);
+}
+
+.empty-msg {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.big-emoji {
+  margin-bottom: 12px;
+  font-size: 48px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.stat-box {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  padding: 14px;
+  text-align: center;
+}
+
+.stat-num {
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.stat-lbl {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
 }
