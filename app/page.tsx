@@ -1,14 +1,9 @@
+import AppHeader from "@/components/AppHeader";
 export default function Home() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col">
-        <header className="border-b border-slate-800 px-5 py-5">
-          <p className="text-sm text-slate-400">Almanca Öğrenme</p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Cümle Tekrar Sistemi
-          </h1>
-        </header>
+      <AppHeader />
 
         <section className="flex-1 space-y-4 px-5 py-6">
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
