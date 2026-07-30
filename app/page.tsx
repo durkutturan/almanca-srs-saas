@@ -5,6 +5,7 @@ import AppHeader from "@/components/AppHeader";
 import BottomNavigation from "@/components/BottomNavigation";
 import CategoryManager from "@/components/CategoryManager";
 import SentenceCards from "@/components/SentenceCards";
+import DataTools from "@/components/DataTools";
 import SentenceForm from "@/components/SentenceForm";
 import SentenceList from "@/components/SentenceList";
 import StatisticsPanel from "@/components/StatisticsPanel";
@@ -82,12 +83,16 @@ export default function Home() {
           />
         )}
 
-        {isLoaded && activePage === "stat" && (
-          <StatisticsPanel
-            categories={appData.categories}
-            sentences={appData.sentences}
-          />
-        )}
+{isLoaded && activePage === "stat" && (
+  <>
+    <StatisticsPanel
+      categories={appData.categories}
+      sentences={appData.sentences}
+    />
+
+    <DataTools appData={appData} />
+  </>
+)}
 
         {isLoaded && activePage === "liste" && (
           <>
