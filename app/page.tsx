@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import BottomNavigation from "@/components/BottomNavigation";
 import CategoryManager from "@/components/CategoryManager";
 import SentenceCards from "@/components/SentenceCards";
 import SentenceForm from "@/components/SentenceForm";
 import SentenceList from "@/components/SentenceList";
+import StatisticsPanel from "@/components/StatisticsPanel";
 import StudyPanel from "@/components/StudyPanel";
 import { useAppData } from "@/hooks/useAppData";
 import type { PageName } from "@/types/app";
@@ -43,16 +44,6 @@ export default function Home() {
     deleteSubcategory,
     totalDue,
   } = useAppData();
-
-  const totalLearned = useMemo(
-    () =>
-      appData.sentences.filter(
-        (sentence) =>
-          sentence.srs.reps >= 3 &&
-          sentence.srs.due > Date.now(),
-      ).length,
-    [appData.sentences],
-  );
 
   return (
     <main className="app-shell">
@@ -92,34 +83,10 @@ export default function Home() {
         )}
 
         {isLoaded && activePage === "stat" && (
-          <>
-            <div className="stat-grid">
-              <div className="stat-box">
-                <div className="stat-num text-[#eab308]">
-                  {appData.sentences.length}
-                </div>
-
-                <div className="stat-lbl">
-                  📦 TOPLAM CÜMLE
-                </div>
-              </div>
-
-              <div className="stat-box">
-                <div className="stat-num text-[#a855f7]">
-                  {totalLearned}
-                </div>
-
-                <div className="stat-lbl">
-                  🏅 ÖĞRENİLEN
-                </div>
-              </div>
-            </div>
-
-            <div className="empty-msg">
-              Ayrıntılı istatistik sistemi sonraki
-              aşamada taşınacak.
-            </div>
-          </>
+          <StatisticsPanel
+            categories={appData.categories}
+            sentences={appData.sentences}
+          />
         )}
 
         {isLoaded && activePage === "liste" && (
@@ -166,12 +133,8 @@ export default function Home() {
         onUpdateCategory={updateCategory}
         onDeleteCategory={deleteCategory}
         onAddSubcategory={addSubcategory}
-        onRenameSubcategory={
-          renameSubcategory
-        }
-        onDeleteSubcategory={
-          deleteSubcategory
-        }
+        onRenameSubcategory={renameSubcategory}
+        onDeleteSubcategory={deleteSubcategory}
       />
     </main>
   );
