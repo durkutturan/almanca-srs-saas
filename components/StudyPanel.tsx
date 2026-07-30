@@ -6,6 +6,17 @@ import type { Category, Sentence } from "@/types/app";
 
 type Rating = 0 | 1 | 2 | 3;
 
+type StudyMode =
+  | "flash"
+  | "type"
+  | "cloze"
+  | "listen"
+  | "mix";
+
+type ActiveMode = Exclude<StudyMode, "mix">;
+
+type StudyDirection = "de-tr" | "tr-de";
+
 type StudyPanelProps = {
   categories: Category[];
   sentences: Sentence[];
@@ -15,6 +26,7 @@ type StudyPanelProps = {
 type StudyScreen =
   | "categories"
   | "subcategories"
+  | "setup"
   | "session"
   | "finished";
 
@@ -26,6 +38,9 @@ type StudyState = {
   position: number;
   revealed: boolean;
   completed: number;
+  selectedMode: StudyMode;
+  activeMode: ActiveMode;
+  direction: StudyDirection;
 };
 
 const INITIAL_STATE: StudyState = {
@@ -36,17 +51,66 @@ const INITIAL_STATE: StudyState = {
   position: 0,
   revealed: false,
   completed: 0,
+  selectedMode: "flash",
+  activeMode: "flash",
+  direction: "de-tr",
 };
 
-function normalizeSubcategory(value: string): string {
+const MODE_OPTIONS: {
+  value: StudyMode;
+  icon: string;
+  title: string;
+  description: string;
+}[] = [
+  {
+    value: "flash",
+    icon: "🃏",
+    title: "Kart",
+    description: "Kartı çevirerek çalış",
+  },
+  {
+    value: "type",
+    icon: "⌨️",
+    title: "Yazarak",
+    description: "Cevabı klavyeyle yaz",
+  },
+  {
+    value: "cloze",
+    icon: "🧩",
+    title: "Boşluk",
+    description: "Eksik kelimeyi tamamla",
+  },
+  {
+    value: "listen",
+    icon: "🎧",
+    title: "Dinleme",
+    description: "Dinleyip anlamını bul",
+  },
+  {
+    value: "mix",
+    icon: "🎲",
+    title: "Karışık",
+    description: "Modlar rastgele seçilir",
+  },
+];
+
+function normalizeSubcategory(value: string) {
   return value || "Genel";
+}
+
+function normalizeAnswer(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase("de-DE")
+    .replace(/[.,!?;:„“"']/g, "")
+    .replace(/\s+/g, " ");
 }
 
 function getCategorySentences(
   sentences: Sentence[],
   categoryName: string,
   subcategory: string | null,
-): Sentence[] {
+) {
   return sentences.filter((sentence) => {
     if (sentence.cat !== categoryName) {
       return false;
@@ -56,7 +120,10 @@ function getCategorySentences(
       return true;
     }
 
-    return normalizeSubcategory(sentence.subcat) === subcategory;
+    return (
+      normalizeSubcategory(sentence.subcat) ===
+      subcategory
+    );
   });
 }
 
@@ -69,12 +136,14 @@ function getStats(sentences: Sentence[]) {
 
   const dueCount = sentences.filter(
     (sentence) =>
-      sentence.srs.reps > 0 && sentence.srs.due <= now,
+      sentence.srs.reps > 0 &&
+      sentence.srs.due <= now,
   ).length;
 
   const learnedCount = sentences.filter(
     (sentence) =>
-      sentence.srs.reps >= 3 && sentence.srs.due > now,
+      sentence.srs.reps >= 3 &&
+      sentence.srs.due > now,
   ).length;
 
   return {
@@ -85,10 +154,39 @@ function getStats(sentences: Sentence[]) {
   };
 }
 
+function getRandomMode(sentence: Sentence): ActiveMode {
+  const availableModes: ActiveMode[] = [
+    "flash",
+    "type",
+    "listen",
+  ];
+
+  if (getClozeAnswer(sentence.de)) {
+    availableModes.push("cloze");
+  }
+
+  return availableModes[
+    Math.floor(Math.random() * availableModes.length)
+  ];
+}
+
+function getClozeAnswer(text: string) {
+  const match = text.match(/\{\{(.+?)\}\}/);
+
+  return match?.[1]?.trim() || "";
+}
+
+function createClozeText(text: string) {
+  return text.replace(
+    /\{\{(.+?)\}\}/,
+    "__________",
+  );
+}
+
 function getPreviewText(
   sentence: Sentence,
   rating: Rating,
-): string {
+) {
   const next = computeSrs(sentence.srs, rating);
 
   if (rating === 0) {
@@ -106,13 +204,418 @@ function speakGerman(text: string) {
     return;
   }
 
-  const utterance = new SpeechSynthesisUtterance(text);
+  const utterance =
+    new SpeechSynthesisUtterance(text);
 
   utterance.lang = "de-DE";
-  utterance.rate = 0.9;
+  utterance.rate = 0.88;
 
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
+}
+
+function AnswerButtons({
+  sentence,
+  onRate,
+}: {
+  sentence: Sentence;
+  onRate: (rating: Rating) => void;
+}) {
+  const buttons: {
+    rating: Rating;
+    label: string;
+    className: string;
+  }[] = [
+    {
+      rating: 0,
+      label: "😵 Tekrar",
+      className: "bg-[#f43f5e] text-white",
+    },
+    {
+      rating: 1,
+      label: "😬 Zor",
+      className: "bg-[#eab308] text-[#1a1a1a]",
+    },
+    {
+      rating: 2,
+      label: "🙂 İyi",
+      className: "bg-[#38bdf8] text-white",
+    },
+    {
+      rating: 3,
+      label: "😎 Kolay",
+      className: "bg-[#10b981] text-white",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-4 gap-1.5">
+      {buttons.map((button) => (
+        <button
+          key={button.rating}
+          type="button"
+          onClick={() => onRate(button.rating)}
+          className={`rounded-xl px-1 py-3 text-xs font-extrabold ${button.className}`}
+        >
+          {button.label}
+
+          <small className="mt-1 block text-[9px]">
+            {getPreviewText(
+              sentence,
+              button.rating,
+            )}
+          </small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FlashExercise({
+  sentence,
+  direction,
+  revealed,
+  onReveal,
+}: {
+  sentence: Sentence;
+  direction: StudyDirection;
+  revealed: boolean;
+  onReveal: () => void;
+}) {
+  const question =
+    direction === "de-tr"
+      ? plainText(sentence.de)
+      : sentence.tr;
+
+  const answer =
+    direction === "de-tr"
+      ? sentence.tr
+      : plainText(sentence.de);
+
+  return (
+    <div className="relative mb-3 min-h-[350px] rounded-[18px] border border-white/10 bg-[#1e293b] p-5">
+      {!revealed ? (
+        <button
+          type="button"
+          onClick={onReveal}
+          className="flex min-h-[310px] w-full flex-col items-center justify-center text-center"
+        >
+          <div className="mb-4 text-3xl">
+            {sentence.icon || "💬"}
+          </div>
+
+          <div className="text-xl font-extrabold leading-8">
+            {question}
+          </div>
+
+          <div className="mt-auto pt-8 text-[11px] font-bold text-[#94a3b8]">
+            Cevabı görmek için dokun 👆
+          </div>
+        </button>
+      ) : (
+        <div className="flex min-h-[310px] flex-col items-center justify-center text-center">
+          {sentence.grammar && (
+            <div className="mb-4 w-full rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs font-bold text-[#eab308]">
+              💡 {sentence.grammar}
+            </div>
+          )}
+
+          <div className="w-full rounded-xl border border-sky-400/20 bg-sky-400/10 p-4">
+            <div className="text-lg font-extrabold">
+              {answer}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              speakGerman(plainText(sentence.de))
+            }
+            className="mt-4 rounded-full border border-sky-400/30 bg-sky-400/10 px-4 py-2 text-xs font-extrabold text-[#38bdf8]"
+          >
+            🔊 Almancayı Dinle
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TypeExercise({
+  sentence,
+  direction,
+  revealed,
+  onReveal,
+}: {
+  sentence: Sentence;
+  direction: StudyDirection;
+  revealed: boolean;
+  onReveal: () => void;
+}) {
+  const [answer, setAnswer] = useState("");
+  const [checked, setChecked] = useState(false);
+
+  const question =
+    direction === "de-tr"
+      ? plainText(sentence.de)
+      : sentence.tr;
+
+  const correctAnswer =
+    direction === "de-tr"
+      ? sentence.tr
+      : plainText(sentence.de);
+
+  const isCorrect =
+    normalizeAnswer(answer) ===
+    normalizeAnswer(correctAnswer);
+
+  function checkAnswer() {
+    if (!answer.trim()) {
+      return;
+    }
+
+    setChecked(true);
+    onReveal();
+  }
+
+  return (
+    <div className="mb-3 rounded-[18px] border border-white/10 bg-[#1e293b] p-4">
+      <div className="mb-4 text-center">
+        <div className="mb-3 text-2xl">
+          {sentence.icon || "⌨️"}
+        </div>
+
+        <div className="text-lg font-extrabold leading-7">
+          {question}
+        </div>
+      </div>
+
+      <textarea
+        value={answer}
+        onChange={(event) => {
+          setAnswer(event.target.value);
+          setChecked(false);
+        }}
+        disabled={checked}
+        className="input-field min-h-[90px] resize-none"
+        placeholder="Cevabını yaz..."
+      />
+
+      {!checked ? (
+        <button
+          type="button"
+          onClick={checkAnswer}
+          className="app-button bg-[#38bdf8] text-white"
+        >
+          Kontrol Et
+        </button>
+      ) : (
+        <div>
+          <div
+            className={`rounded-xl border p-3 ${
+              isCorrect
+                ? "border-emerald-400/30 bg-emerald-500/10"
+                : "border-rose-500/30 bg-rose-500/10"
+            }`}
+          >
+            <div
+              className={`text-xs font-extrabold ${
+                isCorrect
+                  ? "text-[#10b981]"
+                  : "text-[#f43f5e]"
+              }`}
+            >
+              {isCorrect
+                ? "✅ Doğru cevap"
+                : "❌ Cevabın farklı"}
+            </div>
+
+            {!isCorrect && (
+              <div className="mt-2 text-sm font-bold">
+                Doğru cevap: {correctAnswer}
+              </div>
+            )}
+          </div>
+
+          {direction === "tr-de" && (
+            <button
+              type="button"
+              onClick={() =>
+                speakGerman(
+                  plainText(sentence.de),
+                )
+              }
+              className="mt-3 w-full rounded-xl border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-xs font-extrabold text-[#38bdf8]"
+            >
+              🔊 Doğru Telaffuzu Dinle
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClozeExercise({
+  sentence,
+  revealed,
+  onReveal,
+}: {
+  sentence: Sentence;
+  revealed: boolean;
+  onReveal: () => void;
+}) {
+  const [answer, setAnswer] = useState("");
+  const [checked, setChecked] = useState(false);
+
+  const correctAnswer = getClozeAnswer(sentence.de);
+  const question = createClozeText(sentence.de);
+
+  const isCorrect =
+    normalizeAnswer(answer) ===
+    normalizeAnswer(correctAnswer);
+
+  function checkAnswer() {
+    if (!answer.trim()) {
+      return;
+    }
+
+    setChecked(true);
+    onReveal();
+  }
+
+  if (!correctAnswer) {
+    return (
+      <FlashExercise
+        sentence={sentence}
+        direction="de-tr"
+        revealed={revealed}
+        onReveal={onReveal}
+      />
+    );
+  }
+
+  return (
+    <div className="mb-3 rounded-[18px] border border-white/10 bg-[#1e293b] p-4">
+      <div className="mb-3 text-center text-xs font-bold text-[#a855f7]">
+        🧩 Boşluğa uygun Almanca kelimeyi yaz
+      </div>
+
+      <div className="mb-4 rounded-xl bg-black/20 p-4 text-center text-lg font-extrabold leading-7">
+        {question}
+      </div>
+
+      <div className="mb-3 rounded-lg bg-white/5 p-2 text-center text-xs text-[#94a3b8]">
+        🇹🇷 {sentence.tr}
+      </div>
+
+      <input
+        type="text"
+        value={answer}
+        onChange={(event) => {
+          setAnswer(event.target.value);
+          setChecked(false);
+        }}
+        disabled={checked}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            checkAnswer();
+          }
+        }}
+        className="input-field"
+        placeholder="Eksik kelime..."
+        autoComplete="off"
+      />
+
+      {!checked ? (
+        <button
+          type="button"
+          onClick={checkAnswer}
+          className="app-button bg-[#a855f7] text-white"
+        >
+          Kontrol Et
+        </button>
+      ) : (
+        <div
+          className={`rounded-xl border p-3 ${
+            isCorrect
+              ? "border-emerald-400/30 bg-emerald-500/10"
+              : "border-rose-500/30 bg-rose-500/10"
+          }`}
+        >
+          <div
+            className={`text-xs font-extrabold ${
+              isCorrect
+                ? "text-[#10b981]"
+                : "text-[#f43f5e]"
+            }`}
+          >
+            {isCorrect
+              ? "✅ Doğru"
+              : "❌ Doğru cevap:"}
+          </div>
+
+          {!isCorrect && (
+            <div className="mt-1 text-base font-extrabold">
+              {correctAnswer}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ListenExercise({
+  sentence,
+  revealed,
+  onReveal,
+}: {
+  sentence: Sentence;
+  revealed: boolean;
+  onReveal: () => void;
+}) {
+  return (
+    <div className="mb-3 rounded-[18px] border border-white/10 bg-[#1e293b] p-5 text-center">
+      <div className="mb-3 text-xs font-extrabold text-[#38bdf8]">
+        🎧 Cümleyi dinle ve anlamını düşün
+      </div>
+
+      <button
+        type="button"
+        onClick={() =>
+          speakGerman(plainText(sentence.de))
+        }
+        className="mx-auto my-8 flex h-24 w-24 items-center justify-center rounded-full border-4 border-sky-400/30 bg-sky-400/10 text-4xl shadow-lg"
+      >
+        🔊
+      </button>
+
+      <div className="mb-6 text-[11px] text-[#94a3b8]">
+        Dinlemek için ses düğmesine bas
+      </div>
+
+      {!revealed ? (
+        <button
+          type="button"
+          onClick={onReveal}
+          className="app-button bg-[#38bdf8] text-white"
+        >
+          👁️ Cevabı Göster
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-base font-extrabold">
+            🇩🇪 {plainText(sentence.de)}
+          </div>
+
+          <div className="rounded-xl border border-rose-400/20 bg-rose-400/10 p-3 text-base font-extrabold">
+            🇹🇷 {sentence.tr}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function StudyPanel({
@@ -141,16 +644,29 @@ export default function StudyPanel({
     });
   }
 
-  function startSession(
+  function openSetup(
     categoryName: string,
     subcategory: string | null,
   ) {
+    setStudy({
+      ...INITIAL_STATE,
+      screen: "setup",
+      categoryName,
+      subcategory,
+    });
+  }
+
+  function startSession() {
+    if (!study.categoryName) {
+      return;
+    }
+
     const now = Date.now();
 
     const group = getCategorySentences(
       sentences,
-      categoryName,
-      subcategory,
+      study.categoryName,
+      study.subcategory,
     );
 
     let queue = group.filter(
@@ -163,21 +679,35 @@ export default function StudyPanel({
       queue = group;
     }
 
-    queue = [...queue].sort(() => Math.random() - 0.5);
+    queue = [...queue].sort(
+      () => Math.random() - 0.5,
+    );
 
     if (queue.length === 0) {
       return;
     }
 
+    const firstMode =
+      study.selectedMode === "mix"
+        ? getRandomMode(queue[0])
+        : study.selectedMode;
+
     setStudy({
+      ...study,
       screen: "session",
-      categoryName,
-      subcategory,
       queue,
       position: 0,
       revealed: false,
       completed: 0,
+      activeMode: firstMode,
     });
+  }
+
+  function revealAnswer() {
+    setStudy((current) => ({
+      ...current,
+      revealed: true,
+    }));
   }
 
   function rateCurrent(rating: Rating) {
@@ -185,7 +715,8 @@ export default function StudyPanel({
       return;
     }
 
-    const currentSentence = study.queue[study.position];
+    const currentSentence =
+      study.queue[study.position];
 
     if (!currentSentence) {
       return;
@@ -199,15 +730,30 @@ export default function StudyPanel({
     if (rating === 0) {
       const repeatedSentence = {
         ...currentSentence,
-        srs: computeSrs(currentSentence.srs, rating),
+        srs: computeSrs(
+          currentSentence.srs,
+          rating,
+        ),
       };
+
+      const nextQueue = [
+        ...study.queue,
+        repeatedSentence,
+      ];
+
+      const nextSentence =
+        nextQueue[position] || repeatedSentence;
 
       setStudy({
         ...study,
-        queue: [...study.queue, repeatedSentence],
+        queue: nextQueue,
         position,
         revealed: false,
         completed,
+        activeMode:
+          study.selectedMode === "mix"
+            ? getRandomMode(nextSentence)
+            : study.selectedMode,
       });
 
       return;
@@ -223,11 +769,17 @@ export default function StudyPanel({
       return;
     }
 
+    const nextSentence = study.queue[position];
+
     setStudy({
       ...study,
       position,
       revealed: false,
       completed,
+      activeMode:
+        study.selectedMode === "mix"
+          ? getRandomMode(nextSentence)
+          : study.selectedMode,
     });
   }
 
@@ -237,7 +789,7 @@ export default function StudyPanel({
         <div className="big-emoji">🏆</div>
 
         <div className="mb-2 text-lg font-extrabold text-[#f8fafc]">
-          Oturum Tamamlandı
+          Oturum tamamlandı
         </div>
 
         <div className="mb-5 text-sm">
@@ -249,23 +801,158 @@ export default function StudyPanel({
           onClick={() =>
             setStudy({
               ...INITIAL_STATE,
-              screen: "subcategories",
+              screen: "setup",
               categoryName: study.categoryName,
+              subcategory: study.subcategory,
+              selectedMode: study.selectedMode,
+              direction: study.direction,
             })
           }
           className="app-button app-button-primary"
         >
-          📂 Başka Grup Seç
+          🔁 Yeniden Çalış
         </button>
 
         <button
           type="button"
-          onClick={() => setStudy(INITIAL_STATE)}
-          className="app-button app-button-secondary mt-2.5"
+          onClick={() =>
+            setStudy(INITIAL_STATE)
+          }
+          className="app-button app-button-secondary mt-2"
         >
-          ⬅️ Kategorilere Dön
+          📂 Kategorilere Dön
         </button>
       </div>
+    );
+  }
+
+  if (
+    study.screen === "setup" &&
+    study.categoryName
+  ) {
+    const group = getCategorySentences(
+      sentences,
+      study.categoryName,
+      study.subcategory,
+    );
+
+    return (
+      <section>
+        <div className="section-title">
+          🎯 Çalışma Modunu Seç
+        </div>
+
+        <div className="mb-4 rounded-xl border border-white/10 bg-[#1e293b] p-3">
+          <div className="text-sm font-extrabold">
+            {study.categoryName}
+          </div>
+
+          <div className="mt-1 text-[10px] text-[#94a3b8]">
+            {study.subcategory || "Tüm Kategori"} •{" "}
+            {group.length} cümle
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {MODE_OPTIONS.map((mode) => (
+            <button
+              key={mode.value}
+              type="button"
+              onClick={() =>
+                setStudy({
+                  ...study,
+                  selectedMode: mode.value,
+                })
+              }
+              className={`rounded-xl border p-3 text-left ${
+                study.selectedMode === mode.value
+                  ? "border-[#38bdf8] bg-sky-400/10"
+                  : "border-white/10 bg-[#1e293b]"
+              }`}
+            >
+              <div className="text-xl">
+                {mode.icon}
+              </div>
+
+              <div className="mt-1 text-xs font-extrabold">
+                {mode.title}
+              </div>
+
+              <div className="mt-1 text-[9px] leading-3 text-[#94a3b8]">
+                {mode.description}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {(study.selectedMode === "flash" ||
+          study.selectedMode === "type" ||
+          study.selectedMode === "mix") && (
+          <div className="mt-4">
+            <div className="mb-2 text-[11px] font-extrabold text-[#94a3b8]">
+              Çalışma yönü
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setStudy({
+                    ...study,
+                    direction: "de-tr",
+                  })
+                }
+                className={`rounded-xl border px-3 py-3 text-xs font-extrabold ${
+                  study.direction === "de-tr"
+                    ? "border-[#38bdf8] bg-sky-400/10 text-[#38bdf8]"
+                    : "border-white/10 bg-[#1e293b]"
+                }`}
+              >
+                🇩🇪 → 🇹🇷
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setStudy({
+                    ...study,
+                    direction: "tr-de",
+                  })
+                }
+                className={`rounded-xl border px-3 py-3 text-xs font-extrabold ${
+                  study.direction === "tr-de"
+                    ? "border-[#38bdf8] bg-sky-400/10 text-[#38bdf8]"
+                    : "border-white/10 bg-[#1e293b]"
+                }`}
+              >
+                🇹🇷 → 🇩🇪
+              </button>
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={startSession}
+          className="app-button app-button-primary mt-4"
+        >
+          ▶️ Çalışmayı Başlat
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            setStudy({
+              ...INITIAL_STATE,
+              screen: "subcategories",
+              categoryName: study.categoryName,
+            })
+          }
+          className="app-button app-button-secondary mt-2"
+        >
+          ⬅️ Geri
+        </button>
+      </section>
     );
   }
 
@@ -274,52 +961,48 @@ export default function StudyPanel({
     study.categoryName
   ) {
     const category = categories.find(
-      (item) => item.name === study.categoryName,
+      (item) =>
+        item.name === study.categoryName,
     );
 
-    const groupSentences = getCategorySentences(
-      sentences,
-      study.categoryName,
-      null,
-    );
-
-    const usedSubcategories = Array.from(
-      new Set(
-        groupSentences.map((sentence) =>
-          normalizeSubcategory(sentence.subcat),
-        ),
-      ),
-    );
+    const groupSentences =
+      getCategorySentences(
+        sentences,
+        study.categoryName,
+        null,
+      );
 
     const subcategories = Array.from(
       new Set([
         "Genel",
         ...(category?.subcats ?? []),
-        ...usedSubcategories,
+        ...groupSentences.map((sentence) =>
+          normalizeSubcategory(
+            sentence.subcat,
+          ),
+        ),
       ]),
     );
-
-    const allStats = getStats(groupSentences);
 
     return (
       <section>
         <div className="section-title">
-          📂 Hangi grupla çalışmak istersin?
+          📂 Çalışma Grubunu Seç
         </div>
 
         <button
           type="button"
           onClick={() =>
-            startSession(study.categoryName!, null)
+            openSetup(study.categoryName!, null)
           }
-          className="mb-2.5 flex w-full items-center justify-between rounded-[14px] border-2 border-[#a855f7] bg-purple-500/10 p-3.5 text-left"
+          className="mb-2.5 flex w-full items-center justify-between rounded-xl border-2 border-[#a855f7] bg-purple-500/10 p-3.5"
         >
           <span className="text-sm font-extrabold">
             🌍 Tüm Kategori
           </span>
 
-          <span className="text-[10px] font-extrabold text-[#94a3b8]">
-            📦 {allStats.total}
+          <span className="text-[10px] text-[#94a3b8]">
+            {groupSentences.length} cümle
           </span>
         </button>
 
@@ -341,31 +1024,31 @@ export default function StudyPanel({
               key={subcategory}
               type="button"
               onClick={() =>
-                startSession(
+                openSetup(
                   study.categoryName!,
                   subcategory,
                 )
               }
-              className="mb-2.5 flex w-full items-center justify-between rounded-[14px] border-2 border-white/10 bg-[#1e293b] p-3.5 text-left"
+              className="mb-2.5 flex w-full items-center justify-between rounded-xl border border-white/10 bg-[#1e293b] p-3.5"
             >
               <span className="text-sm font-extrabold">
                 📁 {subcategory}
               </span>
 
-              <span className="flex flex-wrap justify-end gap-1">
-                {stats.dueCount > 0 && (
-                  <span className="rounded-lg bg-rose-500/15 px-2 py-1 text-[10px] font-extrabold text-[#f43f5e]">
-                    🔴 {stats.dueCount}
-                  </span>
-                )}
-
+              <span className="flex gap-1">
                 {stats.newCount > 0 && (
-                  <span className="rounded-lg bg-sky-400/15 px-2 py-1 text-[10px] font-extrabold text-[#38bdf8]">
+                  <span className="rounded-md bg-sky-400/10 px-2 py-1 text-[9px] text-[#38bdf8]">
                     🆕 {stats.newCount}
                   </span>
                 )}
 
-                <span className="rounded-lg bg-white/5 px-2 py-1 text-[10px] font-extrabold text-[#94a3b8]">
+                {stats.dueCount > 0 && (
+                  <span className="rounded-md bg-rose-500/10 px-2 py-1 text-[9px] text-[#f43f5e]">
+                    🔴 {stats.dueCount}
+                  </span>
+                )}
+
+                <span className="rounded-md bg-white/5 px-2 py-1 text-[9px] text-[#94a3b8]">
                   📦 {stats.total}
                 </span>
               </span>
@@ -375,7 +1058,9 @@ export default function StudyPanel({
 
         <button
           type="button"
-          onClick={() => setStudy(INITIAL_STATE)}
+          onClick={() =>
+            setStudy(INITIAL_STATE)
+          }
           className="app-button app-button-secondary mt-2"
         >
           ⬅️ Kategorilere Dön
@@ -397,116 +1082,67 @@ export default function StudyPanel({
 
     return (
       <section>
-        <div className="relative mb-2.5 h-[46vh] min-h-[360px] max-h-[520px] w-full [perspective:1000px]">
-          <div className="absolute -top-2.5 left-2.5 z-10 rounded-xl border border-white/10 bg-[#1e293b] px-3 py-1.5 text-[11px] font-extrabold text-[#94a3b8]">
-            {study.subcategory || "Tüm Kategori"} • Kalan:{" "}
-            {remaining}/{study.queue.length}
-          </div>
+        <div className="mb-3 flex items-center justify-between rounded-xl border border-white/10 bg-[#1e293b] px-3 py-2">
+          <span className="text-[10px] font-bold text-[#94a3b8]">
+            {study.activeMode === "flash" &&
+              "🃏 Kart"}
+            {study.activeMode === "type" &&
+              "⌨️ Yazarak"}
+            {study.activeMode === "cloze" &&
+              "🧩 Boşluk"}
+            {study.activeMode === "listen" &&
+              "🎧 Dinleme"}
+          </span>
 
-          <button
-            type="button"
-            onClick={() =>
-              setStudy({
-                ...study,
-                revealed: !study.revealed,
-              })
-            }
-            className={[
-              "relative mt-2.5 h-full w-full border-0 bg-transparent transition-transform duration-500 [transform-style:preserve-3d]",
-              study.revealed
-                ? "[transform:rotateY(180deg)]"
-                : "",
-            ].join(" ")}
-          >
-            <div className="absolute inset-0 flex [backface-visibility:hidden] flex-col items-center justify-center rounded-[18px] border border-white/10 bg-[#1e293b] p-3.5 text-center shadow-[0_8px_24px_rgba(0,0,0,0.3)]">
-              <div className="text-2xl font-extrabold leading-[1.3]">
-                {currentSentence.icon || "💬"}{" "}
-                {plainText(currentSentence.de)}
-              </div>
-
-              <div className="pointer-events-none absolute bottom-3 left-0 w-full text-[11px] font-bold text-[#94a3b8] opacity-60">
-                Cevap için dokun 👆
-              </div>
-            </div>
-
-            <div className="absolute inset-0 flex [backface-visibility:hidden] [transform:rotateY(180deg)] flex-col items-center overflow-y-auto rounded-[18px] border-2 border-[#1e293b] bg-[#0f172a] px-3.5 pb-3.5 pt-6">
-              <div className="flex min-h-max w-full flex-col items-center pb-2.5">
-                {currentSentence.grammar && (
-                  <div className="mb-3 w-full rounded-lg border border-dashed border-yellow-500/40 bg-yellow-500/15 px-2.5 py-1.5 text-center text-xs font-extrabold text-[#eab308]">
-                    💡 {currentSentence.grammar}
-                  </div>
-                )}
-
-                <div className="mb-2.5 w-full rounded-[14px] border-b-[3px] border-[#FC0] bg-[linear-gradient(145deg,#1e293b,#0f172a)] p-3 text-center">
-                  <div className="text-lg font-extrabold">
-                    {plainText(currentSentence.de)}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      speakGerman(
-                        plainText(currentSentence.de),
-                      );
-                    }}
-                    className="mt-2 rounded-full border border-sky-400/30 bg-sky-400/15 px-3 py-1 text-xs font-extrabold text-[#38bdf8]"
-                  >
-                    🔊 Dinle
-                  </button>
-                </div>
-
-                <div className="mb-2.5 w-full rounded-[14px] border-b-[3px] border-[#E30A17] bg-[linear-gradient(145deg,#3f0f16,#1a080a)] p-3 text-center">
-                  <div className="text-lg font-extrabold">
-                    {currentSentence.tr}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </button>
+          <span className="text-[10px] font-bold text-[#94a3b8]">
+            Kalan: {remaining}/
+            {study.queue.length}
+          </span>
         </div>
 
-        {!study.revealed ? (
-          <button
-            type="button"
-            onClick={() =>
-              setStudy({
-                ...study,
-                revealed: true,
-              })
-            }
-            className="app-button bg-[#38bdf8] text-white"
-          >
-            👁️ Cevabı Göster
-          </button>
-        ) : (
-          <div className="grid grid-cols-4 gap-1.5">
-            {(
-              [
-                [0, "😵 Tekrar", "#f43f5e", "white"],
-                [1, "😬 Zor", "#eab308", "#1a1a1a"],
-                [2, "🙂 İyi", "#38bdf8", "white"],
-                [3, "😎 Kolay", "#10b981", "white"],
-              ] as const
-            ).map(([rating, label, background, color]) => (
-              <button
-                key={rating}
-                type="button"
-                onClick={() => rateCurrent(rating)}
-                className="rounded-xl px-1 py-3 text-xs font-extrabold"
-                style={{ background, color }}
-              >
-                {label}
+        {study.activeMode === "flash" && (
+          <FlashExercise
+            key={currentSentence.id}
+            sentence={currentSentence}
+            direction={study.direction}
+            revealed={study.revealed}
+            onReveal={revealAnswer}
+          />
+        )}
 
-                <small className="mt-1 block text-[9px]">
-                  {getPreviewText(
-                    currentSentence,
-                    rating,
-                  )}
-                </small>
-              </button>
-            ))}
-          </div>
+        {study.activeMode === "type" && (
+          <TypeExercise
+            key={currentSentence.id}
+            sentence={currentSentence}
+            direction={study.direction}
+            revealed={study.revealed}
+            onReveal={revealAnswer}
+          />
+        )}
+
+        {study.activeMode === "cloze" && (
+          <ClozeExercise
+            key={currentSentence.id}
+            sentence={currentSentence}
+            revealed={study.revealed}
+            onReveal={revealAnswer}
+          />
+        )}
+
+        {study.activeMode === "listen" && (
+          <ListenExercise
+            key={currentSentence.id}
+            sentence={currentSentence}
+            revealed={study.revealed}
+            onReveal={revealAnswer}
+          />
+        )}
+
+        {study.revealed && (
+          <AnswerButtons
+            sentence={currentSentence}
+            onRate={rateCurrent}
+          />
         )}
 
         <button
@@ -514,13 +1150,19 @@ export default function StudyPanel({
           onClick={() =>
             setStudy({
               ...INITIAL_STATE,
-              screen: "subcategories",
-              categoryName: study.categoryName,
+              screen: "setup",
+              categoryName:
+                study.categoryName,
+              subcategory:
+                study.subcategory,
+              selectedMode:
+                study.selectedMode,
+              direction: study.direction,
             })
           }
           className="app-button app-button-secondary mt-2.5"
         >
-          ⏹️ Bitir
+          ⏹️ Oturumu Bitir
         </button>
       </section>
     );
@@ -550,7 +1192,9 @@ export default function StudyPanel({
         const progress =
           stats.total > 0
             ? Math.round(
-                (stats.learnedCount / stats.total) * 100,
+                (stats.learnedCount /
+                  stats.total) *
+                  100,
               )
             : 0;
 
@@ -574,13 +1218,13 @@ export default function StudyPanel({
 
               <div className="flex flex-wrap gap-1.5">
                 {stats.dueCount > 0 && (
-                  <span className="rounded-lg border border-rose-500/30 bg-rose-500/15 px-2 py-1 text-[10px] font-extrabold text-[#f43f5e]">
+                  <span className="rounded-lg bg-rose-500/15 px-2 py-1 text-[10px] font-extrabold text-[#f43f5e]">
                     🔴 {stats.dueCount} tekrar
                   </span>
                 )}
 
                 {stats.newCount > 0 && (
-                  <span className="rounded-lg border border-sky-400/30 bg-sky-400/15 px-2 py-1 text-[10px] font-extrabold text-[#38bdf8]">
+                  <span className="rounded-lg bg-sky-400/15 px-2 py-1 text-[10px] font-extrabold text-[#38bdf8]">
                     🆕 {stats.newCount} yeni
                   </span>
                 )}
@@ -599,7 +1243,9 @@ export default function StudyPanel({
               <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/30">
                 <div
                   className="h-full rounded-full bg-[linear-gradient(90deg,#10b981,#38bdf8)]"
-                  style={{ width: `${progress}%` }}
+                  style={{
+                    width: `${progress}%`,
+                  }}
                 />
               </div>
             </div>
@@ -614,12 +1260,13 @@ export default function StudyPanel({
         </div>
       )}
 
-      {totalDue === 0 && sentences.length > 0 && (
-        <div className="mt-3 text-center text-xs text-[#94a3b8]">
-          Bugün tekrar bekleyen kart yok. Bir kategoriye
-          basarak yine de çalışabilirsin.
-        </div>
-      )}
+      {totalDue === 0 &&
+        sentences.length > 0 && (
+          <div className="mt-3 text-center text-xs text-[#94a3b8]">
+            Bugün tekrar bekleyen kart yok.
+            Kategori seçerek tekrar çalışabilirsin.
+          </div>
+        )}
     </section>
   );
 }
