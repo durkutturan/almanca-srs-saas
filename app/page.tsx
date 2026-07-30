@@ -3,15 +3,12 @@
 import { useMemo, useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import BottomNavigation from "@/components/BottomNavigation";
+import CategoryManager from "@/components/CategoryManager";
 import SentenceCards from "@/components/SentenceCards";
 import SentenceForm from "@/components/SentenceForm";
+import SentenceList from "@/components/SentenceList";
 import StudyPanel from "@/components/StudyPanel";
 import { useAppData } from "@/hooks/useAppData";
-import {
-  getSrsStatus,
-  hasCloze,
-  plainText,
-} from "@/lib/srs";
 import type { PageName } from "@/types/app";
 
 const PAGE_TITLES: Record<PageName, string> = {
@@ -22,46 +19,28 @@ const PAGE_TITLES: Record<PageName, string> = {
   liste: "📚 Liste",
 };
 
-function getStatusLabel(
-  status: ReturnType<typeof getSrsStatus>,
-) {
-  if (status === "new") {
-    return {
-      text: "YENİ",
-      className: "bg-sky-400/20 text-[#38bdf8]",
-    };
-  }
-
-  if (status === "due") {
-    return {
-      text: "TEKRAR",
-      className: "bg-rose-500/20 text-[#f43f5e]",
-    };
-  }
-
-  if (status === "learning") {
-    return {
-      text: "ÖĞRENİLİYOR",
-      className: "bg-yellow-500/20 text-[#eab308]",
-    };
-  }
-
-  return {
-    text: "✓",
-    className: "bg-emerald-500/20 text-[#10b981]",
-  };
-}
-
 export default function Home() {
   const [activePage, setActivePage] =
     useState<PageName>("cumle");
+
+  const [
+    categoryManagerOpen,
+    setCategoryManagerOpen,
+  ] = useState(false);
 
   const {
     appData,
     isLoaded,
     addSentence,
+    updateSentence,
     deleteSentence,
     rateSentence,
+    addCategory,
+    updateCategory,
+    deleteCategory,
+    addSubcategory,
+    renameSubcategory,
+    deleteSubcategory,
     totalDue,
   } = useAppData();
 
@@ -137,80 +116,36 @@ export default function Home() {
             </div>
 
             <div className="empty-msg">
-              Ayrıntılı istatistik sistemi sonraki aşamada taşınacak.
+              Ayrıntılı istatistik sistemi sonraki
+              aşamada taşınacak.
             </div>
           </>
         )}
 
         {isLoaded && activePage === "liste" && (
           <>
-            {appData.sentences.length === 0 ? (
-              <div className="empty-msg">
-                <div className="big-emoji">📭</div>
-                Henüz cümle yok.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {appData.sentences
-                  .slice()
-                  .reverse()
-                  .map((sentence) => {
-                    const status = getStatusLabel(
-                      getSrsStatus(sentence.srs),
-                    );
+            <button
+              type="button"
+              onClick={() =>
+                setCategoryManagerOpen(true)
+              }
+              className="mb-3 flex w-full items-center justify-between rounded-xl border border-white/10 bg-[#1e293b] px-3 py-2.5 text-left"
+            >
+              <span className="text-xs font-extrabold">
+                ⚙️ Kategori ve Alt Kategori Yönetimi
+              </span>
 
-                    return (
-                      <div
-                        key={sentence.id}
-                        className="flex items-center gap-2.5 rounded-xl border border-white/10 border-l-4 border-l-[#a855f7] bg-[#0f172a] px-3 py-2.5"
-                      >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/5 text-base">
-                          {sentence.icon || "💬"}
-                        </div>
+              <span className="text-xs text-[#38bdf8]">
+                Aç ›
+              </span>
+            </button>
 
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-bold">
-                            {hasCloze(sentence.de) ? "🧩 " : ""}
-                            {plainText(sentence.de)}
-                          </div>
-
-                          <div className="truncate text-[11px] text-[#94a3b8]">
-                            {sentence.tr}
-                          </div>
-
-                          <div className="mt-1 truncate text-[10px] text-[#64748b]">
-                            {sentence.cat}
-                            {sentence.subcat
-                              ? ` • ${sentence.subcat}`
-                              : " • Genel"}
-                          </div>
-                        </div>
-
-                        <div className="flex shrink-0 flex-col items-end gap-2">
-                          <span
-                            className={[
-                              "rounded-lg px-1.5 py-0.5 text-[9px] font-extrabold",
-                              status.className,
-                            ].join(" ")}
-                          >
-                            {status.text}
-                          </span>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              deleteSentence(sentence.id)
-                            }
-                            className="rounded-lg bg-rose-500/10 px-2 py-1 text-[10px] font-bold text-[#f43f5e]"
-                          >
-                            Sil
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
+            <SentenceList
+              categories={appData.categories}
+              sentences={appData.sentences}
+              onDelete={deleteSentence}
+              onUpdate={updateSentence}
+            />
           </>
         )}
       </section>
@@ -219,6 +154,24 @@ export default function Home() {
         activePage={activePage}
         dueCount={totalDue}
         onChange={setActivePage}
+      />
+
+      <CategoryManager
+        isOpen={categoryManagerOpen}
+        categories={appData.categories}
+        onClose={() =>
+          setCategoryManagerOpen(false)
+        }
+        onAddCategory={addCategory}
+        onUpdateCategory={updateCategory}
+        onDeleteCategory={deleteCategory}
+        onAddSubcategory={addSubcategory}
+        onRenameSubcategory={
+          renameSubcategory
+        }
+        onDeleteSubcategory={
+          deleteSubcategory
+        }
       />
     </main>
   );
