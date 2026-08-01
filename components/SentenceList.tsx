@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   getSrsStatus,
   hasCloze,
   plainText,
 } from "@/lib/srs";
-import type { Category, Sentence } from "@/types/app";
+import type {
+  Category,
+  Sentence,
+} from "@/types/app";
 
 type UpdateSentenceInput = {
   de: string;
@@ -27,6 +34,8 @@ type SentenceListProps = {
   ) => void;
 };
 
+type EditMode = "edit" | "move";
+
 type EditForm = {
   id: number;
   de: string;
@@ -43,28 +52,42 @@ function getStatusLabel(
   if (status === "new") {
     return {
       text: "YENİ",
-      className: "bg-sky-400/20 text-[#38bdf8]",
+      className:
+        "border-sky-400/20 bg-sky-400/15 text-[#38bdf8]",
     };
   }
 
   if (status === "due") {
     return {
       text: "TEKRAR",
-      className: "bg-rose-500/20 text-[#f43f5e]",
+      className:
+        "border-rose-500/20 bg-rose-500/15 text-[#f43f5e]",
     };
   }
 
   if (status === "learning") {
     return {
-      text: "ÖĞRENİLİYOR",
-      className: "bg-yellow-500/20 text-[#eab308]",
+      text: "ÖĞRENİYOR",
+      className:
+        "border-yellow-500/20 bg-yellow-500/15 text-[#eab308]",
     };
   }
 
   return {
     text: "ÖĞRENİLDİ",
-    className: "bg-emerald-500/20 text-[#10b981]",
+    className:
+      "border-emerald-500/20 bg-emerald-500/15 text-[#10b981]",
   };
+}
+
+function getSentenceStatusText(
+  sentence: Sentence,
+) {
+  if (sentence.srs.reps === 0) {
+    return "Yeni kart";
+  }
+
+  return `${sentence.srs.reps} tekrar • ${sentence.srs.interval} gün`;
 }
 
 export default function SentenceList({
@@ -74,14 +97,27 @@ export default function SentenceList({
   onUpdate,
 }: SentenceListProps) {
   const [search, setSearch] = useState("");
-  const [openCategories, setOpenCategories] = useState<
-    Record<string, boolean>
-  >({});
-  const [openSubcategories, setOpenSubcategories] = useState<
-    Record<string, boolean>
-  >({});
+
+  const [
+    openCategories,
+    setOpenCategories,
+  ] = useState<Record<string, boolean>>({});
+
+  const [
+    openSubcategories,
+    setOpenSubcategories,
+  ] = useState<Record<string, boolean>>({});
+
+  const [actionSentence, setActionSentence] =
+    useState<Sentence | null>(null);
+
   const [editForm, setEditForm] =
     useState<EditForm | null>(null);
+
+  const [editMode, setEditMode] =
+    useState<EditMode>("edit");
+
+  const [message, setMessage] = useState("");
 
   const normalizedSearch = search
     .trim()
@@ -103,7 +139,9 @@ export default function SentenceList({
         .join(" ")
         .toLocaleLowerCase("tr-TR");
 
-      return searchableText.includes(normalizedSearch);
+      return searchableText.includes(
+        normalizedSearch,
+      );
     });
   }, [normalizedSearch, sentences]);
 
@@ -111,29 +149,62 @@ export default function SentenceList({
     () =>
       categories.find(
         (category) =>
-          category.name === editForm?.category,
+          category.name ===
+          editForm?.category,
       ),
     [categories, editForm?.category],
   );
 
   useEffect(() => {
-    function closeWithEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setEditForm(null);
+    function closeWithEscape(
+      event: KeyboardEvent,
+    ) {
+      if (event.key !== "Escape") {
+        return;
       }
+
+      if (editForm) {
+        setEditForm(null);
+        return;
+      }
+
+      setActionSentence(null);
     }
 
-    window.addEventListener("keydown", closeWithEscape);
+    window.addEventListener(
+      "keydown",
+      closeWithEscape,
+    );
 
     return () => {
-      window.removeEventListener("keydown", closeWithEscape);
+      window.removeEventListener(
+        "keydown",
+        closeWithEscape,
+      );
     };
-  }, []);
+  }, [editForm]);
 
-  function toggleCategory(categoryName: string) {
+  useEffect(() => {
+    if (!message) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setMessage("");
+    }, 2400);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [message]);
+
+  function toggleCategory(
+    categoryName: string,
+  ) {
     setOpenCategories((current) => ({
       ...current,
-      [categoryName]: !current[categoryName],
+      [categoryName]:
+        !current[categoryName],
     }));
   }
 
@@ -144,26 +215,23 @@ export default function SentenceList({
     }));
   }
 
-  function confirmDelete(sentenceId: number) {
-    const approved = window.confirm(
-      "Bu cümle kalıcı olarak silinsin mi?",
-    );
+  function openEditor(
+    sentence: Sentence,
+    mode: EditMode,
+  ) {
+    setEditMode(mode);
 
-    if (approved) {
-      onDelete(sentenceId);
-    }
-  }
-
-  function openEdit(sentence: Sentence) {
     setEditForm({
       id: sentence.id,
       de: sentence.de,
       tr: sentence.tr,
       category: sentence.cat,
-      subcategory: sentence.subcat || "Genel",
+      subcategory: sentence.subcat || "",
       icon: sentence.icon || "💬",
       grammar: sentence.grammar || "",
     });
+
+    setActionSentence(null);
   }
 
   function saveEdit() {
@@ -172,17 +240,23 @@ export default function SentenceList({
     }
 
     if (!editForm.de.trim()) {
-      window.alert("Almanca cümle boş bırakılamaz.");
+      window.alert(
+        "Almanca cümle boş bırakılamaz.",
+      );
       return;
     }
 
     if (!editForm.tr.trim()) {
-      window.alert("Türkçe anlam boş bırakılamaz.");
+      window.alert(
+        "Türkçe anlam boş bırakılamaz.",
+      );
       return;
     }
 
     if (!editForm.category) {
-      window.alert("Bir kategori seçmelisin.");
+      window.alert(
+        "Bir kategori seçmelisin.",
+      );
       return;
     }
 
@@ -196,11 +270,98 @@ export default function SentenceList({
     });
 
     setEditForm(null);
+
+    setMessage(
+      editMode === "move"
+        ? "Cümle taşındı. ✅"
+        : "Cümle güncellendi. ✅",
+    );
+  }
+
+  function confirmDelete(
+    sentence: Sentence,
+  ) {
+    const approved = window.confirm(
+      `"${plainText(
+        sentence.de,
+      )}" cümlesi kalıcı olarak silinsin mi?`,
+    );
+
+    if (!approved) {
+      return;
+    }
+
+    onDelete(sentence.id);
+    setActionSentence(null);
+    setMessage("Cümle silindi.");
+  }
+
+  function renderSentence(
+    sentence: Sentence,
+  ) {
+    const status = getStatusLabel(
+      getSrsStatus(sentence.srs),
+    );
+
+    return (
+      <article
+        key={sentence.id}
+        className="flex items-start gap-2 rounded-xl border border-white/[0.08] bg-[#0f172a] px-2.5 py-2"
+      >
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/5 text-sm">
+          {sentence.icon || "💬"}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-extrabold leading-5">
+                {hasCloze(sentence.de)
+                  ? "🧩 "
+                  : ""}
+
+                {plainText(sentence.de)}
+              </div>
+
+              <div className="truncate text-[11px] leading-4 text-[#94a3b8]">
+                {sentence.tr}
+              </div>
+            </div>
+
+            <span
+              className={[
+                "shrink-0 rounded-md border px-1.5 py-0.5 text-[8px] font-extrabold",
+                status.className,
+              ].join(" ")}
+            >
+              {status.text}
+            </span>
+          </div>
+
+          {sentence.grammar && (
+            <div className="mt-1 truncate text-[9px] text-[#eab308]">
+              💡 {sentence.grammar}
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setActionSentence(sentence)
+          }
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-lg font-black text-[#cbd5e1] transition hover:bg-white/10"
+          aria-label="Cümle seçenekleri"
+        >
+          ⋮
+        </button>
+      </article>
+    );
   }
 
   return (
     <section>
-      <div className="mb-3.5">
+      <div className="mb-3">
         <input
           type="text"
           value={search}
@@ -219,73 +380,105 @@ export default function SentenceList({
               sentence.cat === category.name,
           );
 
-        if (categorySentences.length === 0) {
+        if (
+          categorySentences.length === 0
+        ) {
           return null;
         }
+
+        const directSentences =
+          categorySentences.filter(
+            (sentence) => !sentence.subcat,
+          );
+
+        const subcategoryNames =
+          Array.from(
+            new Set([
+              ...category.subcats,
+              ...categorySentences
+                .map(
+                  (sentence) =>
+                    sentence.subcat,
+                )
+                .filter(
+                  (
+                    subcategory,
+                  ): subcategory is string =>
+                    Boolean(subcategory),
+                ),
+            ]),
+          );
 
         const isCategoryOpen =
           normalizedSearch.length > 0 ||
           openCategories[category.name];
 
-        const subcategoryNames = Array.from(
-          new Set([
-            "Genel",
-            ...category.subcats,
-            ...categorySentences.map(
-              (sentence) =>
-                sentence.subcat || "Genel",
-            ),
-          ]),
-        );
-
         return (
           <div
             key={category.name}
-            className="mb-3 overflow-hidden rounded-2xl border border-white/10 bg-[#1e293b]"
+            className="mb-2.5 overflow-hidden rounded-2xl border border-white/10 bg-[#1e293b]"
           >
             <button
               type="button"
               onClick={() =>
-                toggleCategory(category.name)
+                toggleCategory(
+                  category.name,
+                )
               }
-              className="flex w-full items-center justify-between border-b border-white/10 bg-black/20 p-3 text-left text-[15px] font-bold"
+              className="flex w-full items-center justify-between bg-black/20 px-3 py-2.5 text-left"
             >
-              <span>
-                {category.icon || "📁"}{" "}
-                {category.name}
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-extrabold">
+                  {category.icon || "📁"}{" "}
+                  {category.name}
+                </span>
 
-                <span className="ml-1.5 text-[10px] opacity-60">
-                  {categorySentences.length} cümle
+                <span className="mt-0.5 block text-[10px] text-[#94a3b8]">
+                  {categorySentences.length}{" "}
+                  cümle
                 </span>
               </span>
 
-              <span className="text-xs text-[#38bdf8]">
-                {isCategoryOpen ? "▲" : "▼"}
+              <span
+                className={[
+                  "ml-3 shrink-0 text-[10px] text-[#38bdf8] transition-transform",
+                  isCategoryOpen
+                    ? "rotate-180"
+                    : "",
+                ].join(" ")}
+              >
+                ▼
               </span>
             </button>
 
             {isCategoryOpen && (
-              <div className="p-1">
+              <div className="space-y-1.5 border-t border-white/10 p-1.5">
+                {directSentences.map(
+                  renderSentence,
+                )}
+
                 {subcategoryNames.map(
                   (subcategoryName) => {
                     const subcategorySentences =
                       categorySentences.filter(
                         (sentence) =>
-                          (sentence.subcat ||
-                            "Genel") ===
+                          sentence.subcat ===
                           subcategoryName,
                       );
 
                     if (
-                      subcategorySentences.length === 0
+                      subcategorySentences.length ===
+                      0
                     ) {
                       return null;
                     }
 
-                    const subcategoryKey = `${category.name}|${subcategoryName}`;
+                    const subcategoryKey =
+                      `${category.name}|${subcategoryName}`;
 
                     const isSubcategoryOpen =
-                      normalizedSearch.length > 0 ||
+                      normalizedSearch.length >
+                        0 ||
                       openSubcategories[
                         subcategoryKey
                       ];
@@ -293,7 +486,7 @@ export default function SentenceList({
                     return (
                       <div
                         key={subcategoryKey}
-                        className="border-b border-white/10 last:border-b-0"
+                        className="overflow-hidden rounded-xl border border-white/10 bg-[#0f172a]/50"
                       >
                         <button
                           type="button"
@@ -302,14 +495,16 @@ export default function SentenceList({
                               subcategoryKey,
                             )
                           }
-                          className="flex w-full items-center justify-between border-l-[3px] border-[#38bdf8] bg-black/15 px-3 py-2.5 text-left text-[13px] font-extrabold text-[#94a3b8]"
+                          className="flex w-full items-center justify-between border-l-[3px] border-[#38bdf8] px-3 py-2 text-left"
                         >
-                          <span>
-                            {subcategoryName}
+                          <span className="truncate text-xs font-extrabold text-[#cbd5e1]">
+                            📄 {subcategoryName}
                           </span>
 
-                          <span className="text-[10px] opacity-70">
-                            {subcategorySentences.length}{" "}
+                          <span className="ml-2 shrink-0 text-[9px] text-[#94a3b8]">
+                            {
+                              subcategorySentences.length
+                            }{" "}
                             {isSubcategoryOpen
                               ? "▲"
                               : "▼"}
@@ -317,90 +512,9 @@ export default function SentenceList({
                         </button>
 
                         {isSubcategoryOpen && (
-                          <div className="p-2">
+                          <div className="space-y-1.5 border-t border-white/10 p-1.5">
                             {subcategorySentences.map(
-                              (sentence) => {
-                                const status =
-                                  getStatusLabel(
-                                    getSrsStatus(
-                                      sentence.srs,
-                                    ),
-                                  );
-
-                                return (
-                                  <div
-                                    key={sentence.id}
-                                    className="mb-2 rounded-xl border border-white/10 border-l-4 border-l-[#a855f7] bg-[#0f172a] p-3 last:mb-0"
-                                  >
-                                    <div className="flex items-start gap-2.5">
-                                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 text-lg">
-                                        {sentence.icon ||
-                                          "💬"}
-                                      </div>
-
-                                      <div className="min-w-0 flex-1">
-                                        <div className="text-sm font-bold leading-5">
-                                          {hasCloze(
-                                            sentence.de,
-                                          )
-                                            ? "🧩 "
-                                            : ""}
-
-                                          {plainText(
-                                            sentence.de,
-                                          )}
-                                        </div>
-
-                                        <div className="mt-1 text-[12px] leading-4 text-[#94a3b8]">
-                                          {sentence.tr}
-                                        </div>
-
-                                        {sentence.grammar && (
-                                          <div className="mt-2 rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-2 py-1.5 text-[10px] text-[#eab308]">
-                                            💡{" "}
-                                            {sentence.grammar}
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      <span
-                                        className={[
-                                          "shrink-0 rounded-lg px-1.5 py-0.5 text-[9px] font-extrabold",
-                                          status.className,
-                                        ].join(" ")}
-                                      >
-                                        {status.text}
-                                      </span>
-                                    </div>
-
-                                    <div className="mt-3 flex gap-2 border-t border-white/10 pt-2.5">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          openEdit(
-                                            sentence,
-                                          )
-                                        }
-                                        className="flex-1 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-[11px] font-extrabold text-[#38bdf8]"
-                                      >
-                                        ✏️ Düzenle
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          confirmDelete(
-                                            sentence.id,
-                                          )
-                                        }
-                                        className="flex-1 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] font-extrabold text-[#f43f5e]"
-                                      >
-                                        🗑️ Sil
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              },
+                              renderSentence,
                             )}
                           </div>
                         )}
@@ -416,7 +530,9 @@ export default function SentenceList({
 
       {filteredSentences.length === 0 && (
         <div className="empty-msg">
-          <div className="big-emoji">📭</div>
+          <div className="big-emoji">
+            📭
+          </div>
 
           {search
             ? "Aramana uygun cümle bulunamadı."
@@ -424,12 +540,123 @@ export default function SentenceList({
         </div>
       )}
 
-      {editForm && (
+      {message && (
+        <div className="fixed bottom-24 left-1/2 z-[140] w-[calc(100%-32px)] max-w-[420px] -translate-x-1/2 rounded-xl border border-white/10 bg-[#1e293b] px-4 py-3 text-center text-xs font-extrabold shadow-2xl">
+          {message}
+        </div>
+      )}
+
+      {actionSentence && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-3 py-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 px-3 pb-3 pt-10 backdrop-blur-sm sm:items-center"
           onMouseDown={(event) => {
             if (
-              event.target === event.currentTarget
+              event.target ===
+              event.currentTarget
+            ) {
+              setActionSentence(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-[520px] overflow-hidden rounded-[22px] border border-white/10 bg-[#1e293b] shadow-2xl">
+            <div className="flex items-start justify-between border-b border-white/10 px-4 py-3">
+              <div className="min-w-0 pr-3">
+                <div className="truncate text-sm font-extrabold">
+                  {actionSentence.icon ||
+                    "💬"}{" "}
+                  {plainText(
+                    actionSentence.de,
+                  )}
+                </div>
+
+                <div className="mt-1 truncate text-[10px] text-[#94a3b8]">
+                  {actionSentence.cat}
+
+                  {actionSentence.subcat
+                    ? ` › ${actionSentence.subcat}`
+                    : ""}
+
+                  {" • "}
+
+                  {getSentenceStatusText(
+                    actionSentence,
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setActionSentence(null)
+                }
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 p-3">
+              <button
+                type="button"
+                onClick={() =>
+                  openEditor(
+                    actionSentence,
+                    "edit",
+                  )
+                }
+                className="rounded-xl border border-sky-400/25 bg-sky-400/10 px-3 py-3 text-xs font-extrabold text-[#38bdf8]"
+              >
+                ✏️ Düzenle
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  openEditor(
+                    actionSentence,
+                    "move",
+                  )
+                }
+                className="rounded-xl border border-purple-400/25 bg-purple-400/10 px-3 py-3 text-xs font-extrabold text-[#c084fc]"
+              >
+                📂 Taşı
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  confirmDelete(
+                    actionSentence,
+                  )
+                }
+                className="col-span-2 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-3 text-xs font-extrabold text-[#f43f5e]"
+              >
+                🗑️ Cümleyi Sil
+              </button>
+            </div>
+
+            <div className="border-t border-white/10 p-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setActionSentence(null)
+                }
+                className="w-full rounded-xl bg-[#0f172a] px-3 py-3 text-xs font-extrabold"
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editForm && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 px-3 py-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
             ) {
               setEditForm(null);
             }
@@ -439,17 +666,23 @@ export default function SentenceList({
             <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
               <div>
                 <div className="text-base font-extrabold">
-                  ✏️ Cümleyi Düzenle
+                  {editMode === "move"
+                    ? "📂 Cümleyi Taşı"
+                    : "✏️ Cümleyi Düzenle"}
                 </div>
 
                 <div className="mt-0.5 text-[10px] text-[#94a3b8]">
-                  Cümle ve kategori bilgilerini düzenle.
+                  {editMode === "move"
+                    ? "Yeni kategori ve varsa alt kategoriyi seç."
+                    : "Cümle ve kategori bilgilerini düzenle."}
                 </div>
               </div>
 
               <button
                 type="button"
-                onClick={() => setEditForm(null)}
+                onClick={() =>
+                  setEditForm(null)
+                }
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-sm"
               >
                 ✕
@@ -457,55 +690,62 @@ export default function SentenceList({
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-              <label className="form-label">
-                İkon
-              </label>
+              {editMode === "edit" && (
+                <>
+                  <label className="form-label">
+                    İkon
+                  </label>
 
-              <input
-                type="text"
-                value={editForm.icon}
-                onChange={(event) =>
-                  setEditForm({
-                    ...editForm,
-                    icon: event.target.value,
-                  })
-                }
-                className="input-field"
-                placeholder="💬"
-                maxLength={8}
-              />
+                  <input
+                    type="text"
+                    value={editForm.icon}
+                    onChange={(event) =>
+                      setEditForm({
+                        ...editForm,
+                        icon:
+                          event.target.value,
+                      })
+                    }
+                    className="input-field"
+                    placeholder="💬"
+                    maxLength={8}
+                  />
 
-              <label className="form-label">
-                Almanca cümle
-              </label>
+                  <label className="form-label">
+                    Almanca cümle
+                  </label>
 
-              <textarea
-                value={editForm.de}
-                onChange={(event) =>
-                  setEditForm({
-                    ...editForm,
-                    de: event.target.value,
-                  })
-                }
-                className="input-field min-h-[82px] resize-y"
-                placeholder="Almanca cümle"
-              />
+                  <textarea
+                    value={editForm.de}
+                    onChange={(event) =>
+                      setEditForm({
+                        ...editForm,
+                        de:
+                          event.target.value,
+                      })
+                    }
+                    className="input-field min-h-[82px] resize-y"
+                    placeholder="Almanca cümle"
+                  />
 
-              <label className="form-label">
-                Türkçe anlam
-              </label>
+                  <label className="form-label">
+                    Türkçe anlam
+                  </label>
 
-              <textarea
-                value={editForm.tr}
-                onChange={(event) =>
-                  setEditForm({
-                    ...editForm,
-                    tr: event.target.value,
-                  })
-                }
-                className="input-field min-h-[72px] resize-y"
-                placeholder="Türkçe anlam"
-              />
+                  <textarea
+                    value={editForm.tr}
+                    onChange={(event) =>
+                      setEditForm({
+                        ...editForm,
+                        tr:
+                          event.target.value,
+                      })
+                    }
+                    className="input-field min-h-[72px] resize-y"
+                    placeholder="Türkçe anlam"
+                  />
+                </>
+              )}
 
               <label className="form-label">
                 Kategori
@@ -513,33 +753,28 @@ export default function SentenceList({
 
               <select
                 value={editForm.category}
-                onChange={(event) => {
-                  const category =
-                    categories.find(
-                      (item) =>
-                        item.name ===
-                        event.target.value,
-                    );
-
+                onChange={(event) =>
                   setEditForm({
                     ...editForm,
-                    category: event.target.value,
-                    subcategory:
-                      category?.subcats[0] ||
-                      "Genel",
-                  });
-                }}
+                    category:
+                      event.target.value,
+                    subcategory: "",
+                  })
+                }
                 className="input-field"
               >
-                {categories.map((category) => (
-                  <option
-                    key={category.name}
-                    value={category.name}
-                  >
-                    {category.icon || "📁"}{" "}
-                    {category.name}
-                  </option>
-                ))}
+                {categories.map(
+                  (category) => (
+                    <option
+                      key={category.name}
+                      value={category.name}
+                    >
+                      {category.icon ||
+                        "📁"}{" "}
+                      {category.name}
+                    </option>
+                  ),
+                )}
               </select>
 
               <label className="form-label">
@@ -547,7 +782,9 @@ export default function SentenceList({
               </label>
 
               <select
-                value={editForm.subcategory}
+                value={
+                  editForm.subcategory
+                }
                 onChange={(event) =>
                   setEditForm({
                     ...editForm,
@@ -555,10 +792,14 @@ export default function SentenceList({
                       event.target.value,
                   })
                 }
-                className="input-field"
+                className={
+                  editMode === "move"
+                    ? "input-field mb-0"
+                    : "input-field"
+                }
               >
-                <option value="Genel">
-                  Genel
+                <option value="">
+                  Alt kategori yok
                 </option>
 
                 {selectedCategory?.subcats.map(
@@ -573,27 +814,34 @@ export default function SentenceList({
                 )}
               </select>
 
-              <label className="form-label">
-                Gramer notu
-              </label>
+              {editMode === "edit" && (
+                <>
+                  <label className="form-label">
+                    Gramer notu
+                  </label>
 
-              <textarea
-                value={editForm.grammar}
-                onChange={(event) =>
-                  setEditForm({
-                    ...editForm,
-                    grammar: event.target.value,
-                  })
-                }
-                className="input-field mb-0 min-h-[68px] resize-y"
-                placeholder="İsteğe bağlı gramer notu"
-              />
+                  <textarea
+                    value={editForm.grammar}
+                    onChange={(event) =>
+                      setEditForm({
+                        ...editForm,
+                        grammar:
+                          event.target.value,
+                      })
+                    }
+                    className="input-field mb-0 min-h-[68px] resize-y"
+                    placeholder="İsteğe bağlı gramer notu"
+                  />
+                </>
+              )}
             </div>
 
             <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-white/10 bg-[#1e293b] px-4 py-3">
               <button
                 type="button"
-                onClick={() => setEditForm(null)}
+                onClick={() =>
+                  setEditForm(null)
+                }
                 className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-[#cbd5e1]"
               >
                 Vazgeç
@@ -604,7 +852,9 @@ export default function SentenceList({
                 onClick={saveEdit}
                 className="rounded-lg border border-emerald-400/30 bg-[#10b981] px-3 py-2 text-xs font-extrabold text-white"
               >
-                💾 Kaydet
+                {editMode === "move"
+                  ? "📂 Taşı"
+                  : "💾 Kaydet"}
               </button>
             </div>
           </div>

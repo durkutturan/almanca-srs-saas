@@ -95,7 +95,7 @@ const MODE_OPTIONS: {
 ];
 
 function normalizeSubcategory(value: string) {
-  return value || "Genel";
+  return value || "";
 }
 
 function normalizeAnswer(value: string) {
@@ -626,6 +626,11 @@ export default function StudyPanel({
   const [study, setStudy] =
     useState<StudyState>(INITIAL_STATE);
 
+  const [
+    expandedCategories,
+    setExpandedCategories,
+  ] = useState<Set<string>>(new Set());
+
   const totalDue = useMemo(() => {
     const now = Date.now();
 
@@ -636,11 +641,17 @@ export default function StudyPanel({
     ).length;
   }, [sentences]);
 
-  function openSubcategories(categoryName: string) {
-    setStudy({
-      ...INITIAL_STATE,
-      screen: "subcategories",
-      categoryName,
+  function toggleStudyCategory(
+    categoryName: string,
+  ) {
+    setExpandedCategories((current) => {
+      const next = new Set<string>();
+
+      if (!current.has(categoryName)) {
+        next.add(categoryName);
+      }
+
+      return next;
     });
   }
 
@@ -815,9 +826,15 @@ export default function StudyPanel({
 
         <button
           type="button"
-          onClick={() =>
-            setStudy(INITIAL_STATE)
-          }
+          onClick={() => {
+            if (study.categoryName) {
+              setExpandedCategories(
+                new Set([study.categoryName]),
+              );
+            }
+
+            setStudy(INITIAL_STATE);
+          }}
           className="app-button app-button-secondary mt-2"
         >
           📂 Kategorilere Dön
@@ -941,16 +958,15 @@ export default function StudyPanel({
 
         <button
           type="button"
-          onClick={() =>
-            setStudy({
-              ...INITIAL_STATE,
-              screen: "subcategories",
-              categoryName: study.categoryName,
-            })
-          }
+          onClick={() => {
+            setExpandedCategories(
+              new Set([study.categoryName!]),
+            );
+            setStudy(INITIAL_STATE);
+          }}
           className="app-button app-button-secondary mt-2"
         >
-          ⬅️ Geri
+          ⬅️ Kategorilere Dön
         </button>
       </section>
     );
@@ -974,13 +990,14 @@ export default function StudyPanel({
 
     const subcategories = Array.from(
       new Set([
-        "Genel",
         ...(category?.subcats ?? []),
-        ...groupSentences.map((sentence) =>
-          normalizeSubcategory(
-            sentence.subcat,
-          ),
-        ),
+        ...groupSentences
+          .map((sentence) =>
+            normalizeSubcategory(
+              sentence.subcat,
+            ),
+          )
+          .filter(Boolean),
       ]),
     );
 
@@ -1174,84 +1191,218 @@ export default function StudyPanel({
         📅 Bugün Çalışılacaklar
       </div>
 
-      {categories.map((category) => {
-        const group = getCategorySentences(
-          sentences,
-          category.name,
-          null,
-        );
+      <div className="space-y-2">
+        {categories.map((category) => {
+          const group = getCategorySentences(
+            sentences,
+            category.name,
+            null,
+          );
 
-        if (group.length === 0) {
-          return null;
-        }
+          if (group.length === 0) {
+            return null;
+          }
 
-        const stats = getStats(group);
-        const activeCount =
-          stats.newCount + stats.dueCount;
+          const stats = getStats(group);
+          const activeCount =
+            stats.newCount + stats.dueCount;
 
-        const progress =
-          stats.total > 0
-            ? Math.round(
-                (stats.learnedCount /
-                  stats.total) *
-                  100,
-              )
-            : 0;
+          const progress =
+            stats.total > 0
+              ? Math.round(
+                  (stats.learnedCount /
+                    stats.total) *
+                    100,
+                )
+              : 0;
 
-        return (
-          <button
-            key={category.name}
-            type="button"
-            onClick={() =>
-              openSubcategories(category.name)
-            }
-            className="mb-3 flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-[#1e293b] p-3.5 text-left"
-          >
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/5 text-2xl">
-              {category.icon || "📁"}
+          const isExpanded =
+            expandedCategories.has(
+              category.name,
+            );
+
+          const subcategories = Array.from(
+            new Set([
+              ...category.subcats,
+              ...group
+                .map((sentence) =>
+                  normalizeSubcategory(
+                    sentence.subcat,
+                  ),
+                )
+                .filter(Boolean),
+            ]),
+          );
+
+          return (
+            <div
+              key={category.name}
+              className="overflow-hidden rounded-2xl border border-white/10 bg-[#1e293b]"
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  toggleStudyCategory(
+                    category.name,
+                  )
+                }
+                className="flex w-full items-center gap-3 p-3.5 text-left"
+                aria-expanded={isExpanded}
+              >
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/5 text-2xl">
+                  {category.icon || "📁"}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <span className="truncate text-[15px] font-extrabold">
+                      {category.name}
+                    </span>
+
+                    <span
+                      className={[
+                        "shrink-0 text-xs text-[#94a3b8] transition-transform",
+                        isExpanded
+                          ? "rotate-180"
+                          : "",
+                      ].join(" ")}
+                    >
+                      ▼
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {stats.dueCount > 0 && (
+                      <span className="rounded-lg bg-rose-500/15 px-2 py-1 text-[10px] font-extrabold text-[#f43f5e]">
+                        🔴 {stats.dueCount} tekrar
+                      </span>
+                    )}
+
+                    {stats.newCount > 0 && (
+                      <span className="rounded-lg bg-sky-400/15 px-2 py-1 text-[10px] font-extrabold text-[#38bdf8]">
+                        🆕 {stats.newCount} yeni
+                      </span>
+                    )}
+
+                    {activeCount === 0 && (
+                      <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-[10px] font-extrabold text-[#10b981]">
+                        ✅ Bugünlük bitti
+                      </span>
+                    )}
+
+                    <span className="rounded-lg bg-white/5 px-2 py-1 text-[10px] font-extrabold text-[#94a3b8]">
+                      📦 {stats.total}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/30">
+                    <div
+                      className="h-full rounded-full bg-[linear-gradient(90deg,#10b981,#38bdf8)]"
+                      style={{
+                        width: `${progress}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </button>
+
+              {isExpanded && (
+                <div className="border-t border-white/10 bg-black/10 p-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openSetup(
+                        category.name,
+                        null,
+                      )
+                    }
+                    className="mb-2 flex w-full items-center justify-between rounded-xl border border-purple-400/30 bg-purple-500/10 px-3 py-3 text-left"
+                  >
+                    <span className="text-xs font-extrabold text-purple-200">
+                      🌍 Tüm Kategoriyi Çalış
+                    </span>
+
+                    <span className="text-[10px] text-[#94a3b8]">
+                      {group.length} cümle
+                    </span>
+                  </button>
+
+                  <div className="space-y-1.5">
+                    {subcategories.map(
+                      (subcategory) => {
+                        const subcategoryGroup =
+                          getCategorySentences(
+                            sentences,
+                            category.name,
+                            subcategory,
+                          );
+
+                        if (
+                          subcategoryGroup.length === 0
+                        ) {
+                          return null;
+                        }
+
+                        const subcategoryStats =
+                          getStats(
+                            subcategoryGroup,
+                          );
+
+                        return (
+                          <button
+                            key={`${category.name}-${subcategory}`}
+                            type="button"
+                            onClick={() =>
+                              openSetup(
+                                category.name,
+                                subcategory,
+                              )
+                            }
+                            className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-left hover:bg-white/[0.07]"
+                          >
+                            <span className="min-w-0 truncate text-xs font-extrabold">
+                              📁 {subcategory}
+                            </span>
+
+                            <span className="ml-2 flex shrink-0 gap-1">
+                              {subcategoryStats.newCount >
+                                0 && (
+                                <span className="rounded-md bg-sky-400/10 px-1.5 py-1 text-[9px] text-[#38bdf8]">
+                                  🆕{" "}
+                                  {
+                                    subcategoryStats.newCount
+                                  }
+                                </span>
+                              )}
+
+                              {subcategoryStats.dueCount >
+                                0 && (
+                                <span className="rounded-md bg-rose-500/10 px-1.5 py-1 text-[9px] text-[#f43f5e]">
+                                  🔴{" "}
+                                  {
+                                    subcategoryStats.dueCount
+                                  }
+                                </span>
+                              )}
+
+                              <span className="rounded-md bg-white/5 px-1.5 py-1 text-[9px] text-[#94a3b8]">
+                                📦{" "}
+                                {
+                                  subcategoryStats.total
+                                }
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      },
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-
-            <div className="min-w-0 flex-1">
-              <div className="mb-1.5 text-[15px] font-extrabold">
-                {category.name}
-              </div>
-
-              <div className="flex flex-wrap gap-1.5">
-                {stats.dueCount > 0 && (
-                  <span className="rounded-lg bg-rose-500/15 px-2 py-1 text-[10px] font-extrabold text-[#f43f5e]">
-                    🔴 {stats.dueCount} tekrar
-                  </span>
-                )}
-
-                {stats.newCount > 0 && (
-                  <span className="rounded-lg bg-sky-400/15 px-2 py-1 text-[10px] font-extrabold text-[#38bdf8]">
-                    🆕 {stats.newCount} yeni
-                  </span>
-                )}
-
-                {activeCount === 0 && (
-                  <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-[10px] font-extrabold text-[#10b981]">
-                    ✅ Bugünlük bitti
-                  </span>
-                )}
-
-                <span className="rounded-lg bg-white/5 px-2 py-1 text-[10px] font-extrabold text-[#94a3b8]">
-                  📦 {stats.total}
-                </span>
-              </div>
-
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/30">
-                <div
-                  className="h-full rounded-full bg-[linear-gradient(90deg,#10b981,#38bdf8)]"
-                  style={{
-                    width: `${progress}%`,
-                  }}
-                />
-              </div>
-            </div>
-          </button>
-        );
-      })}
+          );
+        })}
+      </div>
 
       {sentences.length === 0 && (
         <div className="empty-msg">
