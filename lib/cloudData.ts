@@ -61,7 +61,13 @@ type EnsureAccountResponse = {
 };
 
 function getAppDocument(userId: string) {
-  return doc(db, "users", userId, "app", "main");
+  return doc(
+    db,
+    "users",
+    userId,
+    "app",
+    "main",
+  );
 }
 
 function getAccountDocument(userId: string) {
@@ -82,7 +88,9 @@ function timestampToMillis(
     : null;
 }
 
-function normalizePlan(value: unknown): UserPlan {
+function normalizePlan(
+  value: unknown,
+): UserPlan {
   return value === "pro" ? "pro" : "free";
 }
 
@@ -256,13 +264,13 @@ export async function ensureUserAccount(
     payload =
       (await response.json()) as EnsureAccountResponse;
   } catch {
-    // JSON dışı hata yanıtlarında aşağıdaki genel mesaj kullanılır.
+    // Genel hata mesajı aşağıda kullanılır.
   }
 
   if (!response.ok) {
     throw new Error(
       payload.error ||
-        "Kullanıcı hesap bilgileri oluşturulamadı.",
+        `Hesap servisi hata verdi (${response.status}).`,
     );
   }
 

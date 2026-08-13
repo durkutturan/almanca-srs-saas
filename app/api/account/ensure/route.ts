@@ -1,10 +1,12 @@
-import { getAuth } from "firebase-admin/auth";
 import {
   FieldValue,
   Timestamp,
 } from "firebase-admin/firestore";
 import { NextResponse } from "next/server";
-import { getAdminDatabase } from "@/lib/firebaseAdmin";
+import {
+  getAdminAuth,
+  getAdminDatabase,
+} from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -147,14 +149,8 @@ export async function POST(
       );
     }
 
-    // Firebase Admin uygulamasını önce başlat.
-    const database =
-      getAdminDatabase();
-
-    const auth = getAuth();
-
     const decodedToken =
-      await auth.verifyIdToken(
+      await getAdminAuth().verifyIdToken(
         idToken,
       );
 
@@ -168,6 +164,9 @@ export async function POST(
     } catch {
       body = {};
     }
+
+    const database =
+      getAdminDatabase();
 
     const accountReference =
       database.doc(
@@ -218,6 +217,7 @@ export async function POST(
           }
 
           const now = Timestamp.now();
+
           const trialEndsAt =
             Timestamp.fromMillis(
               now.toMillis() +
@@ -271,10 +271,10 @@ export async function POST(
     return NextResponse.json(
       {
         error:
-          "Kullanıcı hesabı doğrulanamadı.",
+          "Kullanıcı hesabı sunucuda doğrulanamadı.",
       },
       {
-        status: 401,
+        status: 500,
       },
     );
   }

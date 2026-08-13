@@ -22,6 +22,7 @@ import {
   ensureUserAccount,
   getUserAccess,
   loadCloudData,
+  loadUserAccount,
   saveCloudData,
   type UserAccess,
   type UserAccount,
@@ -208,15 +209,41 @@ export default function Home() {
     setCloudSyncState("loading");
 
     async function initializeCloudData() {
-      try {
-        /*
-         * İlk girişte hesap profili ve 14 günlük
-         * Pro deneme süresi oluşturulur. Mevcut
-         * kullanıcıların deneme tarihi yeniden başlamaz.
-         */
-        const account =
-          await ensureUserAccount(currentUser);
+      /*
+       * Hesap/trial servisi ile bulut veri yüklemesini
+       * birbirinden ayırıyoruz. Böylece sunucu tarafı
+       * hesap servisi geçici hata verse bile kullanıcının
+       * mevcut cümle verileri açılmaya devam eder.
+       */
+      let account: UserAccount | null = null;
 
+      try {
+        account =
+          await ensureUserAccount(currentUser);
+      } catch (accountError) {
+        console.error(
+          "Hesap servisi kullanılamadı:",
+          accountError,
+        );
+
+        /*
+         * Mevcut kullanıcıysa Firestore'daki hesabı
+         * salt okunur olarak almaya çalış.
+         */
+        try {
+          account =
+            await loadUserAccount(
+              currentUser.uid,
+            );
+        } catch (accountLoadError) {
+          console.error(
+            "Mevcut hesap bilgisi okunamadı:",
+            accountLoadError,
+          );
+        }
+      }
+
+      try {
         const cloudData =
           await loadCloudData(currentUser.uid);
 
@@ -237,14 +264,14 @@ export default function Home() {
           setUserAccount(account);
           setCloudSyncState("ready");
         }
-      } catch (error) {
+      } catch (cloudError) {
         console.error(
-          "Hesap veya bulut verileri yüklenemedi:",
-          error,
+          "Bulut verileri yüklenemedi:",
+          cloudError,
         );
 
         if (!cancelled) {
-          setUserAccount(null);
+          setUserAccount(account);
           setCloudSyncState("error");
         }
       }
@@ -311,9 +338,8 @@ export default function Home() {
     }
 
     /*
-     * Çıkıştan hemen önce son değişiklikleri buluta gönder.
-     * Firestore kaydı takılırsa çıkışın sonsuza kadar
-     * beklememesi için en fazla 3 saniye beklenir.
+     * Son bulut kaydı takılırsa çıkışın bloke olmaması
+     * için en fazla 3 saniye beklenir.
      */
     if (userId && cloudSyncState === "ready") {
       try {
