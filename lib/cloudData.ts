@@ -3,14 +3,11 @@ import {
   Timestamp,
   doc,
   getDoc,
-  runTransaction,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { AppData } from "@/types/app";
-
-const TRIAL_DAYS = 14;
 
 export type UserPlan = "free" | "pro";
 
@@ -54,18 +51,17 @@ type AccountDocument = {
   status?: AccountStatus;
   trialStartedAt?: Timestamp | null;
   trialEndsAt?: Timestamp | null;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: Timestamp | null;
+  updatedAt?: Timestamp | null;
+};
+
+type EnsureAccountResponse = {
+  account?: UserAccount;
+  error?: string;
 };
 
 function getAppDocument(userId: string) {
-  return doc(
-    db,
-    "users",
-    userId,
-    "app",
-    "main",
-  );
+  return doc(db, "users", userId, "app", "main");
 }
 
 function getAccountDocument(userId: string) {
@@ -86,9 +82,7 @@ function timestampToMillis(
     : null;
 }
 
-function normalizePlan(
-  value: unknown,
-): UserPlan {
+function normalizePlan(value: unknown): UserPlan {
   return value === "pro" ? "pro" : "free";
 }
 
@@ -133,19 +127,74 @@ function mapAccountDocument(
   };
 }
 
+function isNullableString(
+  value: unknown,
+): value is string | null {
+  return (
+    typeof value === "string" ||
+    value === null
+  );
+}
+
+function isNullableNumber(
+  value: unknown,
+): value is number | null {
+  return (
+    typeof value === "number" ||
+    value === null
+  );
+}
+
+function isUserAccount(
+  value: unknown,
+): value is UserAccount {
+  if (
+    typeof value !== "object" ||
+    value === null
+  ) {
+    return false;
+  }
+
+  const account =
+    value as Record<string, unknown>;
+
+  return (
+    typeof account.uid === "string" &&
+    isNullableString(account.email) &&
+    isNullableString(account.displayName) &&
+    isNullableString(account.photoURL) &&
+    (
+      account.plan === "free" ||
+      account.plan === "pro"
+    ) &&
+    (
+      account.status === "trial" ||
+      account.status === "active" ||
+      account.status === "expired" ||
+      account.status === "canceled"
+    ) &&
+    isNullableNumber(account.trialStartedAt) &&
+    isNullableNumber(account.trialEndsAt) &&
+    isNullableNumber(account.createdAt) &&
+    isNullableNumber(account.updatedAt)
+  );
+}
+
 export function getUserAccess(
   account: UserAccount,
   now = Date.now(),
 ): UserAccess {
+  const trialEndsAt = account.trialEndsAt;
+
   const trialActive =
-    account.trialEndsAt !== null &&
-    account.trialEndsAt > now;
+    trialEndsAt !== null &&
+    trialEndsAt > now;
 
   const trialDaysLeft = trialActive
     ? Math.max(
         1,
         Math.ceil(
-          (account.trialEndsAt! - now) /
+          (trialEndsAt - now) /
             (24 * 60 * 60 * 1000),
         ),
       )
@@ -181,97 +230,49 @@ export function getUserAccess(
 }
 
 export async function ensureUserAccount(
-  user: Pick<
-    User,
-    "uid" | "email" | "displayName" | "photoURL"
-  >,
+  user: User,
 ): Promise<UserAccount> {
-  const accountDocument =
-    getAccountDocument(user.uid);
+  const idToken = await user.getIdToken();
 
-  let account: UserAccount | null = null;
-
-  await runTransaction(
-    db,
-    async (transaction) => {
-      const snapshot = await transaction.get(
-        accountDocument,
-      );
-
-      if (snapshot.exists()) {
-        const existingData =
-          snapshot.data() as AccountDocument;
-
-        transaction.set(
-          accountDocument,
-          {
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            updatedAt: serverTimestamp(),
-          },
-          {
-            merge: true,
-          },
-        );
-
-        account = mapAccountDocument(
-          user.uid,
-          existingData,
-        );
-
-        return;
-      }
-
-      const trialStartedAt = Timestamp.now();
-
-      const trialEndsAt = Timestamp.fromMillis(
-        trialStartedAt.toMillis() +
-          TRIAL_DAYS *
-            24 *
-            60 *
-            60 *
-            1000,
-      );
-
-      transaction.set(accountDocument, {
-        uid: user.uid,
+  const response = await fetch(
+    "/api/account/ensure",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         email: user.email,
         displayName: user.displayName,
         photoURL: user.photoURL,
-        plan: "free",
-        status: "trial",
-        trialStartedAt,
-        trialEndsAt,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      account = {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        plan: "free",
-        status: "trial",
-        trialStartedAt:
-          trialStartedAt.toMillis(),
-        trialEndsAt: trialEndsAt.toMillis(),
-        createdAt:
-          trialStartedAt.toMillis(),
-        updatedAt:
-          trialStartedAt.toMillis(),
-      };
+      }),
     },
   );
 
-  if (!account) {
+  let payload: EnsureAccountResponse = {};
+
+  try {
+    payload =
+      (await response.json()) as EnsureAccountResponse;
+  } catch {
+    // JSON dışı hata yanıtlarında aşağıdaki genel mesaj kullanılır.
+  }
+
+  if (!response.ok) {
     throw new Error(
-      "Kullanıcı hesap bilgileri oluşturulamadı.",
+      payload.error ||
+        "Kullanıcı hesap bilgileri oluşturulamadı.",
     );
   }
 
-  return account;
+  if (!isUserAccount(payload.account)) {
+    throw new Error(
+      "Sunucudan geçersiz kullanıcı hesap bilgisi döndü.",
+    );
+  }
+
+  return payload.account;
 }
 
 export async function loadUserAccount(

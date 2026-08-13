@@ -312,11 +312,23 @@ export default function Home() {
 
     /*
      * Çıkıştan hemen önce son değişiklikleri buluta gönder.
-     * Kayıt başarısız olsa bile kullanıcı çıkış yapabilir.
+     * Firestore kaydı takılırsa çıkışın sonsuza kadar
+     * beklememesi için en fazla 3 saniye beklenir.
      */
     if (userId && cloudSyncState === "ready") {
       try {
-        await saveCloudData(userId, appData);
+        await Promise.race([
+          saveCloudData(userId, appData),
+          new Promise<never>((_, reject) => {
+            window.setTimeout(() => {
+              reject(
+                new Error(
+                  "Çıkış öncesi bulut kaydı zaman aşımına uğradı.",
+                ),
+              );
+            }, 3000);
+          }),
+        ]);
       } catch (error) {
         console.error(
           "Çıkış öncesi son kayıt yapılamadı:",
