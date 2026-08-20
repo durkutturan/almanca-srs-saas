@@ -1065,6 +1065,7 @@ export function useAppData(
       }
 
       if (
+        planLimits.maxSubcategoriesPerCategory !== null &&
         Number.isFinite(planLimits.maxSubcategoriesPerCategory) &&
         target.subcats.length + selected.length >
           planLimits.maxSubcategoriesPerCategory
