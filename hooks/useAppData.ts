@@ -16,6 +16,7 @@ import {
 import { computeSrs, createNewSrs } from "@/lib/srs";
 import type {
   AppData,
+  Category,
   NewSentenceInput,
   Sentence,
 } from "@/types/app";
@@ -24,11 +25,23 @@ const STORAGE_KEY = "cumleSRSPro";
 
 type Rating = 0 | 1 | 2 | 3;
 
+export type SentenceDestination = {
+  category: string;
+  subcategory?: string;
+  subsubcategory?: string;
+};
+
+export type DeleteGroupOptions = {
+  sentenceAction: "delete" | "move";
+  target?: SentenceDestination;
+};
+
 type UpdateSentenceInput = {
   de: string;
   tr: string;
   category: string;
   subcategory: string;
+  subsubcategory?: string;
   icon: string;
   grammar: string;
 };
@@ -38,33 +51,93 @@ function normalizeSubcategory(
 ): string {
   const cleanValue = value?.trim() ?? "";
 
-  return cleanValue.toLocaleLowerCase("tr-TR") ===
-    "genel"
+  return cleanValue.toLocaleLowerCase("tr-TR") === "genel"
     ? ""
     : cleanValue;
+}
+
+function normalizeSubsubcategory(
+  value: string | null | undefined,
+): string {
+  return value?.trim() ?? "";
+}
+
+function uniqueNames(values: unknown[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  values.forEach((value) => {
+    if (typeof value !== "string") {
+      return;
+    }
+
+    const clean = value.trim();
+    if (!clean || clean.toLocaleLowerCase("tr-TR") === "genel") {
+      return;
+    }
+
+    const key = clean.toLocaleLowerCase("tr-TR");
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(clean);
+    }
+  });
+
+  return result;
+}
+
+function cleanCategory(category: Category): Category {
+  const subcats = uniqueNames(category.subcats ?? []);
+  const rawSubsubcats =
+    category.subsubcats && typeof category.subsubcats === "object"
+      ? category.subsubcats
+      : {};
+
+  const subsubcats: Record<string, string[]> = {};
+
+  subcats.forEach((subcategory) => {
+    subsubcats[subcategory] = uniqueNames(
+      Array.isArray(rawSubsubcats[subcategory])
+        ? rawSubsubcats[subcategory]
+        : [],
+    );
+  });
+
+  return {
+    ...category,
+    name: category.name.trim(),
+    icon: category.icon?.trim() || "📁",
+    subcats,
+    subsubcats,
+  };
 }
 
 function cleanCategories(
   categories: AppData["categories"],
 ): AppData["categories"] {
-  return categories.map((category) => ({
-    ...category,
-    subcats: Array.from(
-      new Set(
-        (category.subcats ?? [])
-          .map((subcategory) =>
-            subcategory.trim(),
-          )
-          .filter(
-            (subcategory) =>
-              Boolean(subcategory) &&
-              subcategory.toLocaleLowerCase(
-                "tr-TR",
-              ) !== "genel",
-          ),
-      ),
-    ),
-  }));
+  return categories
+    .filter(
+      (category) =>
+        category &&
+        typeof category.name === "string" &&
+        Boolean(category.name.trim()),
+    )
+    .map(cleanCategory);
+}
+
+function normalizeSentence(sentence: Sentence): Sentence {
+  const subcat = normalizeSubcategory(sentence.subcat);
+
+  return {
+    ...sentence,
+    subcat,
+    subsubcat: subcat
+      ? normalizeSubsubcategory(sentence.subsubcat)
+      : "",
+    icon: sentence.icon || "💬",
+    grammar: sentence.grammar ?? "",
+    srs: sentence.srs ?? createNewSrs(),
+  };
 }
 
 function cloneDefaultData(): AppData {
@@ -74,17 +147,8 @@ function cloneDefaultData(): AppData {
 
   return {
     ...cloned,
-    categories: cleanCategories(
-      cloned.categories,
-    ),
-    sentences: cloned.sentences.map(
-      (sentence) => ({
-        ...sentence,
-        subcat: normalizeSubcategory(
-          sentence.subcat,
-        ),
-      }),
-    ),
+    categories: cleanCategories(cloned.categories),
+    sentences: cloned.sentences.map(normalizeSentence),
   };
 }
 
@@ -96,50 +160,130 @@ function repairAppData(value: unknown): AppData {
   const candidate = value as Partial<AppData>;
   const fallback = cloneDefaultData();
 
+  const categories =
+    Array.isArray(candidate.categories) && candidate.categories.length > 0
+      ? cleanCategories(candidate.categories)
+      : fallback.categories;
+
+  const sentences = Array.isArray(candidate.sentences)
+    ? candidate.sentences.map((sentence) =>
+        normalizeSentence(sentence as Sentence),
+      )
+    : [];
+
+  /*
+   * Eski kayıtlarda subsubcats/subsubcat yoktur. Cümlede görülen
+   * kategori yollarını kategori ağacına ekleyerek veri kaybını önleriz.
+   */
+  const normalizedCategories = categories.map((category) => ({
+    ...category,
+    subcats: [...category.subcats],
+    subsubcats: { ...(category.subsubcats ?? {}) },
+  }));
+
+  sentences.forEach((sentence) => {
+    const category = normalizedCategories.find(
+      (item) => item.name === sentence.cat,
+    );
+
+    if (!category || !sentence.subcat) {
+      return;
+    }
+
+    if (!category.subcats.includes(sentence.subcat)) {
+      category.subcats.push(sentence.subcat);
+    }
+
+    category.subsubcats ??= {};
+    category.subsubcats[sentence.subcat] ??= [];
+
+    if (
+      sentence.subsubcat &&
+      !category.subsubcats[sentence.subcat].includes(
+        sentence.subsubcat,
+      )
+    ) {
+      category.subsubcats[sentence.subcat].push(
+        sentence.subsubcat,
+      );
+    }
+  });
+
   return {
-    categories:
-      Array.isArray(candidate.categories) &&
-      candidate.categories.length > 0
-        ? cleanCategories(candidate.categories)
-        : fallback.categories,
-
-    sentences: Array.isArray(candidate.sentences)
-      ? candidate.sentences.map((sentence) => ({
-          ...sentence,
-          subcat: normalizeSubcategory(
-            sentence.subcat,
-          ),
-          icon: sentence.icon || "💬",
-          grammar: sentence.grammar ?? "",
-          srs: sentence.srs ?? createNewSrs(),
-        }))
-      : [],
-
+    categories: normalizedCategories,
+    sentences,
     stats: {
       streak: candidate.stats?.streak ?? 0,
-      lastStudyDay:
-        candidate.stats?.lastStudyDay ?? null,
+      lastStudyDay: candidate.stats?.lastStudyDay ?? null,
       days: candidate.stats?.days ?? {},
-      notifyEnabled:
-        candidate.stats?.notifyEnabled ?? false,
+      notifyEnabled: candidate.stats?.notifyEnabled ?? false,
     },
   };
+}
+
+function categoryHasName(
+  values: string[],
+  name: string,
+  ignore?: string,
+): boolean {
+  const key = name.toLocaleLowerCase("tr-TR");
+
+  return values.some(
+    (value) =>
+      value !== ignore &&
+      value.toLocaleLowerCase("tr-TR") === key,
+  );
+}
+
+function getDestination(
+  destination: SentenceDestination,
+): Required<SentenceDestination> {
+  const subcategory = normalizeSubcategory(destination.subcategory);
+  const subsubcategory = subcategory
+    ? normalizeSubsubcategory(destination.subsubcategory)
+    : "";
+
+  return {
+    category: destination.category.trim(),
+    subcategory,
+    subsubcategory,
+  };
+}
+
+function isValidDestination(
+  data: AppData,
+  destination: Required<SentenceDestination>,
+): boolean {
+  const category = data.categories.find(
+    (item) => item.name === destination.category,
+  );
+
+  if (!category) {
+    return false;
+  }
+
+  if (!destination.subcategory) {
+    return !destination.subsubcategory;
+  }
+
+  if (!category.subcats.includes(destination.subcategory)) {
+    return false;
+  }
+
+  if (!destination.subsubcategory) {
+    return true;
+  }
+
+  return (category.subsubcats?.[destination.subcategory] ?? []).includes(
+    destination.subsubcategory,
+  );
 }
 
 export function useAppData(
   accessLevel: AccessLevel = "pro",
 ) {
-  const [appData, setAppData] = useState<AppData>(
-    cloneDefaultData,
-  );
-
+  const [appData, setAppData] = useState<AppData>(cloneDefaultData);
   const [isLoaded, setIsLoaded] = useState(false);
-
-  /*
-   * Toplu ekleme sırasında aynı anda gelen işlemlerin
-   * güncel sayıları görmesi için verinin son hâli ref'te
-   * de tutulur.
-   */
   const appDataRef = useRef(appData);
 
   const planLimits = useMemo(
@@ -147,23 +291,29 @@ export function useAppData(
     [accessLevel],
   );
 
+  const commit = useCallback((nextData: AppData) => {
+    appDataRef.current = nextData;
+    setAppData(nextData);
+  }, []);
+
   useEffect(() => {
     appDataRef.current = appData;
   }, [appData]);
 
   useEffect(() => {
     try {
-      const savedData =
-        window.localStorage.getItem(STORAGE_KEY);
+      const savedData = window.localStorage.getItem(STORAGE_KEY);
 
       if (savedData) {
-        setAppData(
-          repairAppData(JSON.parse(savedData)),
-        );
+        const repaired = repairAppData(JSON.parse(savedData));
+        appDataRef.current = repaired;
+        setAppData(repaired);
       }
     } catch (error) {
       console.error(error);
-      setAppData(cloneDefaultData());
+      const fallback = cloneDefaultData();
+      appDataRef.current = fallback;
+      setAppData(fallback);
     } finally {
       setIsLoaded(true);
     }
@@ -174,24 +324,31 @@ export function useAppData(
       return;
     }
 
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(appData),
-    );
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
   }, [appData, isLoaded]);
 
   const addSentence = useCallback(
     (input: NewSentenceInput): Sentence => {
       const current = appDataRef.current;
+      const subcat = normalizeSubcategory(input.subcategory);
+      const subsubcat = subcat
+        ? normalizeSubsubcategory(input.subsubcategory)
+        : "";
+
+      const nextId = Math.max(
+        Date.now(),
+        current.sentences.length > 0
+          ? Math.max(...current.sentences.map((item) => item.id)) + 1
+          : 1,
+      );
 
       const sentence: Sentence = {
-        id: Date.now(),
+        id: nextId,
         de: input.de.trim(),
         tr: input.tr.trim(),
         cat: input.category,
-        subcat: normalizeSubcategory(
-          input.subcategory,
-        ),
+        subcat,
+        subsubcat,
         icon: input.icon.trim() || "💬",
         grammar: input.grammar.trim(),
         srs: createNewSrs(),
@@ -206,112 +363,148 @@ export function useAppData(
         window.alert(
           `Free planda en fazla ${planLimits.maxSentences} cümle ekleyebilirsin. Mevcut cümlelerin silinmez. Daha fazla cümle için Pro plana geçmelisin.`,
         );
-
         return sentence;
       }
 
-      const nextData: AppData = {
+      commit({
         ...current,
-        sentences: [
-          ...current.sentences,
-          sentence,
-        ],
-      };
-
-      appDataRef.current = nextData;
-      setAppData(nextData);
+        sentences: [...current.sentences, sentence],
+      });
 
       return sentence;
     },
-    [planLimits.maxSentences],
+    [commit, planLimits.maxSentences],
   );
 
   const updateSentence = useCallback(
-    (
-      sentenceId: number,
-      input: UpdateSentenceInput,
-    ) => {
-      setAppData((current) => ({
+    (sentenceId: number, input: UpdateSentenceInput) => {
+      const current = appDataRef.current;
+      const subcat = normalizeSubcategory(input.subcategory);
+
+      commit({
         ...current,
-        sentences: current.sentences.map(
-          (sentence) =>
-            sentence.id === sentenceId
-              ? {
-                  ...sentence,
-                  de: input.de.trim(),
-                  tr: input.tr.trim(),
-                  cat: input.category,
-                  subcat:
-                    normalizeSubcategory(
-                      input.subcategory,
-                    ),
-                  icon:
-                    input.icon.trim() || "💬",
-                  grammar: input.grammar.trim(),
-                }
-              : sentence,
+        sentences: current.sentences.map((sentence) =>
+          sentence.id === sentenceId
+            ? {
+                ...sentence,
+                de: input.de.trim(),
+                tr: input.tr.trim(),
+                cat: input.category,
+                subcat,
+                subsubcat: subcat
+                  ? normalizeSubsubcategory(input.subsubcategory)
+                  : "",
+                icon: input.icon.trim() || "💬",
+                grammar: input.grammar.trim(),
+              }
+            : sentence,
         ),
-      }));
+      });
     },
-    [],
+    [commit],
   );
 
   const deleteSentence = useCallback(
     (sentenceId: number) => {
-      setAppData((current) => ({
+      const current = appDataRef.current;
+      commit({
         ...current,
         sentences: current.sentences.filter(
-          (sentence) =>
-            sentence.id !== sentenceId,
+          (sentence) => sentence.id !== sentenceId,
         ),
-      }));
+      });
     },
-    [],
+    [commit],
+  );
+
+  const deleteSentences = useCallback(
+    (sentenceIds: number[]) => {
+      const idSet = new Set(sentenceIds);
+      const current = appDataRef.current;
+
+      commit({
+        ...current,
+        sentences: current.sentences.filter(
+          (sentence) => !idSet.has(sentence.id),
+        ),
+      });
+    },
+    [commit],
+  );
+
+  const moveSentences = useCallback(
+    (
+      sentenceIds: number[],
+      destination: SentenceDestination,
+    ): boolean => {
+      if (sentenceIds.length === 0) {
+        return false;
+      }
+
+      const current = appDataRef.current;
+      const target = getDestination(destination);
+
+      if (!isValidDestination(current, target)) {
+        window.alert("Taşınacak hedef kategori yolu artık mevcut değil.");
+        return false;
+      }
+
+      const idSet = new Set(sentenceIds);
+
+      commit({
+        ...current,
+        sentences: current.sentences.map((sentence) =>
+          idSet.has(sentence.id)
+            ? {
+                ...sentence,
+                cat: target.category,
+                subcat: target.subcategory,
+                subsubcat: target.subsubcategory,
+              }
+            : sentence,
+        ),
+      });
+
+      return true;
+    },
+    [commit],
   );
 
   const rateSentence = useCallback(
     (sentenceId: number, rating: Rating) => {
-      setAppData((current) => ({
+      const current = appDataRef.current;
+
+      commit({
         ...current,
-        sentences: current.sentences.map(
-          (sentence) =>
-            sentence.id === sentenceId
-              ? {
-                  ...sentence,
-                  srs: computeSrs(
-                    sentence.srs,
-                    rating,
-                  ),
-                }
-              : sentence,
+        sentences: current.sentences.map((sentence) =>
+          sentence.id === sentenceId
+            ? {
+                ...sentence,
+                srs: computeSrs(sentence.srs, rating),
+              }
+            : sentence,
         ),
-      }));
+      });
     },
-    [],
+    [commit],
   );
 
   const addCategory = useCallback(
     (name: string, icon: string): boolean => {
       const cleanName = name.trim();
-
       if (!cleanName) {
         return false;
       }
 
       const current = appDataRef.current;
-
       const exists = current.categories.some(
         (category) =>
-          category.name.toLocaleLowerCase(
-            "tr-TR",
-          ) ===
+          category.name.toLocaleLowerCase("tr-TR") ===
           cleanName.toLocaleLowerCase("tr-TR"),
       );
 
       if (exists) {
-        window.alert(
-          "Bu isimde bir kategori zaten var.",
-        );
+        window.alert("Bu isimde bir kategori zaten var.");
         return false;
       }
 
@@ -324,11 +517,10 @@ export function useAppData(
         window.alert(
           `Free planda en fazla ${planLimits.maxCategories} kategori oluşturabilirsin. Mevcut kategorilerin silinmez. Daha fazla kategori için Pro plana geçmelisin.`,
         );
-
         return false;
       }
 
-      const nextData: AppData = {
+      commit({
         ...current,
         categories: [
           ...current.categories,
@@ -336,16 +528,14 @@ export function useAppData(
             name: cleanName,
             icon: icon.trim() || "📁",
             subcats: [],
+            subsubcats: {},
           },
         ],
-      };
-
-      appDataRef.current = nextData;
-      setAppData(nextData);
+      });
 
       return true;
     },
-    [planLimits.maxCategories],
+    [commit, planLimits.maxCategories],
   );
 
   const updateCategory = useCallback(
@@ -355,110 +545,77 @@ export function useAppData(
       icon: string,
     ): boolean => {
       const cleanName = newName.trim();
-
       if (!cleanName) {
         return false;
       }
 
-      let updated = false;
+      const current = appDataRef.current;
+      const duplicate = current.categories.some(
+        (category) =>
+          category.name !== oldName &&
+          category.name.toLocaleLowerCase("tr-TR") ===
+            cleanName.toLocaleLowerCase("tr-TR"),
+      );
 
-      setAppData((current) => {
-        const duplicate =
-          current.categories.some(
-            (category) =>
-              category.name !== oldName &&
-              category.name.toLocaleLowerCase(
-                "tr-TR",
-              ) ===
-                cleanName.toLocaleLowerCase(
-                  "tr-TR",
-                ),
-          );
+      if (duplicate) {
+        window.alert("Bu isimde başka bir kategori var.");
+        return false;
+      }
 
-        if (duplicate) {
-          window.alert(
-            "Bu isimde başka bir kategori var.",
-          );
-          return current;
-        }
-
-        updated = true;
-
-        return {
-          ...current,
-          categories: current.categories.map(
-            (category) =>
-              category.name === oldName
-                ? {
-                    ...category,
-                    name: cleanName,
-                    icon: icon.trim() || "📁",
-                  }
-                : category,
-          ),
-          sentences: current.sentences.map(
-            (sentence) =>
-              sentence.cat === oldName
-                ? {
-                    ...sentence,
-                    cat: cleanName,
-                  }
-                : sentence,
-          ),
-        };
+      commit({
+        ...current,
+        categories: current.categories.map((category) =>
+          category.name === oldName
+            ? {
+                ...category,
+                name: cleanName,
+                icon: icon.trim() || "📁",
+              }
+            : category,
+        ),
+        sentences: current.sentences.map((sentence) =>
+          sentence.cat === oldName
+            ? { ...sentence, cat: cleanName }
+            : sentence,
+        ),
       });
 
-      return updated;
+      return true;
     },
-    [],
+    [commit],
   );
 
   const deleteCategory = useCallback(
     (categoryName: string): boolean => {
-      let deleted = false;
+      const current = appDataRef.current;
 
-      setAppData((current) => {
-        if (current.categories.length <= 1) {
-          window.alert(
-            "Son kategori silinemez.",
-          );
-          return current;
-        }
+      if (current.categories.length <= 1) {
+        window.alert("Son kategori silinemez.");
+        return false;
+      }
 
-        const targetCategory =
-          current.categories.find(
-            (category) =>
-              category.name !== categoryName,
-          );
+      if (!current.categories.some((item) => item.name === categoryName)) {
+        return false;
+      }
 
-        if (!targetCategory) {
-          return current;
-        }
-
-        deleted = true;
-
-        return {
-          ...current,
-          categories: current.categories.filter(
-            (category) =>
-              category.name !== categoryName,
-          ),
-          sentences: current.sentences.map(
-            (sentence) =>
-              sentence.cat === categoryName
-                ? {
-                    ...sentence,
-                    cat: targetCategory.name,
-                    subcat: "",
-                  }
-                : sentence,
-          ),
-        };
+      /*
+       * Yeni davranış: üst kategori silinirse o kategoriye bağlı bütün
+       * cümleler de kalıcı olarak silinir. Onay CategoryManager'daki
+       * profesyonel modalda alınır.
+       */
+      commit({
+        ...current,
+        categories: current.categories.filter(
+          (category) => category.name !== categoryName,
+        ),
+        sentences: current.sentences.filter(
+          (sentence) => sentence.cat !== categoryName,
+        ),
       });
 
-      return deleted;
+      return true;
     },
-    [],
+    [commit],
   );
 
   const addSubcategory = useCallback(
@@ -467,15 +624,11 @@ export function useAppData(
       subcategoryName: string,
     ): boolean => {
       const cleanName = subcategoryName.trim();
-
       if (!cleanName) {
         return false;
       }
 
-      if (
-        cleanName.toLocaleLowerCase("tr-TR") ===
-        "genel"
-      ) {
+      if (cleanName.toLocaleLowerCase("tr-TR") === "genel") {
         window.alert(
           "“Genel” artık kullanılmıyor. Farklı bir alt kategori adı yaz.",
         );
@@ -483,29 +636,16 @@ export function useAppData(
       }
 
       const current = appDataRef.current;
-
-      const category =
-        current.categories.find(
-          (item) =>
-            item.name === categoryName,
-        );
+      const category = current.categories.find(
+        (item) => item.name === categoryName,
+      );
 
       if (!category) {
         return false;
       }
 
-      const exists = category.subcats.some(
-        (subcategory) =>
-          subcategory.toLocaleLowerCase(
-            "tr-TR",
-          ) ===
-          cleanName.toLocaleLowerCase("tr-TR"),
-      );
-
-      if (exists) {
-        window.alert(
-          "Bu alt kategori zaten var.",
-        );
+      if (categoryHasName(category.subcats, cleanName)) {
+        window.alert("Bu alt kategori zaten var.");
         return false;
       }
 
@@ -518,34 +658,28 @@ export function useAppData(
         window.alert(
           `Free planda bir kategoride en fazla ${planLimits.maxSubcategoriesPerCategory} alt kategori oluşturabilirsin. Mevcut alt kategorilerin silinmez. Daha fazlası için Pro plana geçmelisin.`,
         );
-
         return false;
       }
 
-      const nextData: AppData = {
+      commit({
         ...current,
-        categories: current.categories.map(
-          (item) =>
-            item.name === categoryName
-              ? {
-                  ...item,
-                  subcats: [
-                    ...item.subcats,
-                    cleanName,
-                  ],
-                }
-              : item,
+        categories: current.categories.map((item) =>
+          item.name === categoryName
+            ? {
+                ...item,
+                subcats: [...item.subcats, cleanName],
+                subsubcats: {
+                  ...(item.subsubcats ?? {}),
+                  [cleanName]: [],
+                },
+              }
+            : item,
         ),
-      };
-
-      appDataRef.current = nextData;
-      setAppData(nextData);
+      });
 
       return true;
     },
-    [
-      planLimits.maxSubcategoriesPerCategory,
-    ],
+    [commit, planLimits.maxSubcategoriesPerCategory],
   );
 
   const renameSubcategory = useCallback(
@@ -555,193 +689,494 @@ export function useAppData(
       newName: string,
     ): boolean => {
       const cleanName = newName.trim();
-
       if (!cleanName) {
-        window.alert(
-          "Alt kategori adı boş bırakılamaz.",
-        );
+        window.alert("Alt kategori adı boş bırakılamaz.");
         return false;
       }
 
-      if (
-        cleanName.toLocaleLowerCase("tr-TR") ===
-        "genel"
-      ) {
+      if (cleanName.toLocaleLowerCase("tr-TR") === "genel") {
         window.alert(
           "“Genel” artık kullanılmıyor. Farklı bir alt kategori adı yaz.",
         );
         return false;
       }
 
-      let updated = false;
+      const current = appDataRef.current;
+      const category = current.categories.find(
+        (item) => item.name === categoryName,
+      );
 
-      setAppData((current) => {
-        const category =
-          current.categories.find(
-            (item) =>
-              item.name === categoryName,
-          );
+      if (!category) {
+        return false;
+      }
 
-        if (!category) {
-          return current;
-        }
+      if (categoryHasName(category.subcats, cleanName, oldName)) {
+        window.alert("Bu isimde başka bir alt kategori var.");
+        return false;
+      }
 
-        const duplicate = category.subcats.some(
-          (subcategory) =>
-            subcategory !== oldName &&
-            subcategory.toLocaleLowerCase(
-              "tr-TR",
-            ) ===
-              cleanName.toLocaleLowerCase(
-                "tr-TR",
-              ),
-        );
+      commit({
+        ...current,
+        categories: current.categories.map((item) => {
+          if (item.name !== categoryName) {
+            return item;
+          }
 
-        if (duplicate) {
-          window.alert(
-            "Bu isimde başka bir alt kategori var.",
-          );
-          return current;
-        }
+          const previousChildren = item.subsubcats?.[oldName] ?? [];
+          const nextSubsubcats = { ...(item.subsubcats ?? {}) };
+          delete nextSubsubcats[oldName];
+          nextSubsubcats[cleanName] = previousChildren;
 
-        updated = true;
-
-        return {
-          ...current,
-          categories: current.categories.map(
-            (item) =>
-              item.name === categoryName
-                ? {
-                    ...item,
-                    subcats: item.subcats.map(
-                      (subcategory) =>
-                        subcategory === oldName
-                          ? cleanName
-                          : subcategory,
-                    ),
-                  }
-                : item,
-          ),
-          sentences: current.sentences.map(
-            (sentence) =>
-              sentence.cat === categoryName &&
-              sentence.subcat === oldName
-                ? {
-                    ...sentence,
-                    subcat: cleanName,
-                  }
-                : sentence,
-          ),
-        };
+          return {
+            ...item,
+            subcats: item.subcats.map((subcategory) =>
+              subcategory === oldName ? cleanName : subcategory,
+            ),
+            subsubcats: nextSubsubcats,
+          };
+        }),
+        sentences: current.sentences.map((sentence) =>
+          sentence.cat === categoryName && sentence.subcat === oldName
+            ? { ...sentence, subcat: cleanName }
+            : sentence,
+        ),
       });
 
-      return updated;
+      return true;
     },
-    [],
+    [commit],
+  );
+
+  const addSubsubcategory = useCallback(
+    (
+      categoryName: string,
+      subcategoryName: string,
+      subsubcategoryName: string,
+    ): boolean => {
+      const cleanName = subsubcategoryName.trim();
+      if (!cleanName) {
+        return false;
+      }
+
+      const current = appDataRef.current;
+      const category = current.categories.find(
+        (item) => item.name === categoryName,
+      );
+
+      if (!category || !category.subcats.includes(subcategoryName)) {
+        return false;
+      }
+
+      const children = category.subsubcats?.[subcategoryName] ?? [];
+
+      if (categoryHasName(children, cleanName)) {
+        window.alert("Bu alt-alt kategori zaten var.");
+        return false;
+      }
+
+      if (
+        hasReachedLimit(
+          children.length,
+          planLimits.maxSubcategoriesPerCategory,
+        )
+      ) {
+        window.alert(
+          `Free planda bir alt kategoride en fazla ${planLimits.maxSubcategoriesPerCategory} alt-alt kategori oluşturabilirsin.`,
+        );
+        return false;
+      }
+
+      commit({
+        ...current,
+        categories: current.categories.map((item) =>
+          item.name === categoryName
+            ? {
+                ...item,
+                subsubcats: {
+                  ...(item.subsubcats ?? {}),
+                  [subcategoryName]: [...children, cleanName],
+                },
+              }
+            : item,
+        ),
+      });
+
+      return true;
+    },
+    [commit, planLimits.maxSubcategoriesPerCategory],
+  );
+
+  const renameSubsubcategory = useCallback(
+    (
+      categoryName: string,
+      subcategoryName: string,
+      oldName: string,
+      newName: string,
+    ): boolean => {
+      const cleanName = newName.trim();
+      if (!cleanName) {
+        return false;
+      }
+
+      const current = appDataRef.current;
+      const category = current.categories.find(
+        (item) => item.name === categoryName,
+      );
+      const children = category?.subsubcats?.[subcategoryName] ?? [];
+
+      if (!category || !children.includes(oldName)) {
+        return false;
+      }
+
+      if (categoryHasName(children, cleanName, oldName)) {
+        window.alert("Bu isimde başka bir alt-alt kategori var.");
+        return false;
+      }
+
+      commit({
+        ...current,
+        categories: current.categories.map((item) =>
+          item.name === categoryName
+            ? {
+                ...item,
+                subsubcats: {
+                  ...(item.subsubcats ?? {}),
+                  [subcategoryName]: children.map((name) =>
+                    name === oldName ? cleanName : name,
+                  ),
+                },
+              }
+            : item,
+        ),
+        sentences: current.sentences.map((sentence) =>
+          sentence.cat === categoryName &&
+          sentence.subcat === subcategoryName &&
+          sentence.subsubcat === oldName
+            ? { ...sentence, subsubcat: cleanName }
+            : sentence,
+        ),
+      });
+
+      return true;
+    },
+    [commit],
   );
 
   const deleteSubcategory = useCallback(
     (
       categoryName: string,
       subcategoryName: string,
+      options: DeleteGroupOptions = { sentenceAction: "delete" },
     ): boolean => {
-      let deleted = false;
+      const current = appDataRef.current;
+      const category = current.categories.find(
+        (item) => item.name === categoryName,
+      );
 
-      setAppData((current) => {
-        const category =
-          current.categories.find(
-            (item) =>
-              item.name === categoryName,
-          );
+      if (!category || !category.subcats.includes(subcategoryName)) {
+        return false;
+      }
 
-        if (!category) {
-          return current;
+      let nextSentences = current.sentences;
+
+      if (options.sentenceAction === "move") {
+        if (!options.target) {
+          return false;
         }
 
-        deleted = true;
+        const target = getDestination(options.target);
+        if (!isValidDestination(current, target)) {
+          window.alert("Taşınacak hedef kategori yolu artık mevcut değil.");
+          return false;
+        }
 
-        return {
-          ...current,
-          categories: current.categories.map(
-            (item) =>
-              item.name === categoryName
-                ? {
-                    ...item,
-                    subcats: item.subcats.filter(
-                      (subcategory) =>
-                        subcategory !==
-                        subcategoryName,
-                    ),
-                  }
-                : item,
-          ),
-          sentences: current.sentences.map(
-            (sentence) =>
+        if (
+          target.category === categoryName &&
+          target.subcategory === subcategoryName
+        ) {
+          window.alert("Silinen alt kategorinin içine taşıma yapılamaz.");
+          return false;
+        }
+
+        nextSentences = current.sentences.map((sentence) =>
+          sentence.cat === categoryName &&
+          sentence.subcat === subcategoryName
+            ? {
+                ...sentence,
+                cat: target.category,
+                subcat: target.subcategory,
+                subsubcat: target.subsubcategory,
+              }
+            : sentence,
+        );
+      } else {
+        nextSentences = current.sentences.filter(
+          (sentence) =>
+            !(
               sentence.cat === categoryName &&
-              sentence.subcat ===
-                subcategoryName
-                ? {
-                    ...sentence,
-                    subcat: "",
-                  }
-                : sentence,
-          ),
-        };
+              sentence.subcat === subcategoryName
+            ),
+        );
+      }
+
+      commit({
+        ...current,
+        categories: current.categories.map((item) => {
+          if (item.name !== categoryName) {
+            return item;
+          }
+
+          const nextSubsubcats = { ...(item.subsubcats ?? {}) };
+          delete nextSubsubcats[subcategoryName];
+
+          return {
+            ...item,
+            subcats: item.subcats.filter(
+              (subcategory) => subcategory !== subcategoryName,
+            ),
+            subsubcats: nextSubsubcats,
+          };
+        }),
+        sentences: nextSentences,
       });
 
-      return deleted;
+      return true;
     },
-    [],
+    [commit],
+  );
+
+  const deleteSubsubcategory = useCallback(
+    (
+      categoryName: string,
+      subcategoryName: string,
+      subsubcategoryName: string,
+      options: DeleteGroupOptions = { sentenceAction: "delete" },
+    ): boolean => {
+      const current = appDataRef.current;
+      const category = current.categories.find(
+        (item) => item.name === categoryName,
+      );
+      const children = category?.subsubcats?.[subcategoryName] ?? [];
+
+      if (!category || !children.includes(subsubcategoryName)) {
+        return false;
+      }
+
+      let nextSentences = current.sentences;
+
+      if (options.sentenceAction === "move") {
+        if (!options.target) {
+          return false;
+        }
+
+        const target = getDestination(options.target);
+        if (!isValidDestination(current, target)) {
+          window.alert("Taşınacak hedef kategori yolu artık mevcut değil.");
+          return false;
+        }
+
+        if (
+          target.category === categoryName &&
+          target.subcategory === subcategoryName &&
+          target.subsubcategory === subsubcategoryName
+        ) {
+          return false;
+        }
+
+        nextSentences = current.sentences.map((sentence) =>
+          sentence.cat === categoryName &&
+          sentence.subcat === subcategoryName &&
+          sentence.subsubcat === subsubcategoryName
+            ? {
+                ...sentence,
+                cat: target.category,
+                subcat: target.subcategory,
+                subsubcat: target.subsubcategory,
+              }
+            : sentence,
+        );
+      } else {
+        nextSentences = current.sentences.filter(
+          (sentence) =>
+            !(
+              sentence.cat === categoryName &&
+              sentence.subcat === subcategoryName &&
+              sentence.subsubcat === subsubcategoryName
+            ),
+        );
+      }
+
+      commit({
+        ...current,
+        categories: current.categories.map((item) =>
+          item.name === categoryName
+            ? {
+                ...item,
+                subsubcats: {
+                  ...(item.subsubcats ?? {}),
+                  [subcategoryName]: children.filter(
+                    (name) => name !== subsubcategoryName,
+                  ),
+                },
+              }
+            : item,
+        ),
+        sentences: nextSentences,
+      });
+
+      return true;
+    },
+    [commit],
+  );
+
+  const moveSubcategories = useCallback(
+    (
+      sourceCategoryName: string,
+      subcategoryNames: string[],
+      targetCategoryName: string,
+    ): boolean => {
+      if (
+        !sourceCategoryName ||
+        !targetCategoryName ||
+        sourceCategoryName === targetCategoryName ||
+        subcategoryNames.length === 0
+      ) {
+        return false;
+      }
+
+      const current = appDataRef.current;
+      const source = current.categories.find(
+        (item) => item.name === sourceCategoryName,
+      );
+      const target = current.categories.find(
+        (item) => item.name === targetCategoryName,
+      );
+
+      if (!source || !target) {
+        return false;
+      }
+
+      const selected = Array.from(new Set(subcategoryNames)).filter(
+        (name) => source.subcats.includes(name),
+      );
+
+      if (selected.length === 0) {
+        return false;
+      }
+
+      if (
+        Number.isFinite(planLimits.maxSubcategoriesPerCategory) &&
+        target.subcats.length + selected.length >
+          planLimits.maxSubcategoriesPerCategory
+      ) {
+        window.alert(
+          `Hedef kategoride Free plan alt kategori sınırı aşılır. En fazla ${planLimits.maxSubcategoriesPerCategory} alt kategori olabilir.`,
+        );
+        return false;
+      }
+
+      const hasConflict = selected.some((name) =>
+        categoryHasName(target.subcats, name),
+      );
+
+      if (hasConflict) {
+        window.alert(
+          "Hedef kategoride aynı isimde bir alt kategori var. Önce isimleri düzenlemelisin.",
+        );
+        return false;
+      }
+
+      const movedChildren: Record<string, string[]> = {};
+      selected.forEach((name) => {
+        movedChildren[name] = [
+          ...(source.subsubcats?.[name] ?? []),
+        ];
+      });
+
+      commit({
+        ...current,
+        categories: current.categories.map((item) => {
+          if (item.name === sourceCategoryName) {
+            const nextSubsubcats = { ...(item.subsubcats ?? {}) };
+            selected.forEach((name) => delete nextSubsubcats[name]);
+
+            return {
+              ...item,
+              subcats: item.subcats.filter(
+                (name) => !selected.includes(name),
+              ),
+              subsubcats: nextSubsubcats,
+            };
+          }
+
+          if (item.name === targetCategoryName) {
+            return {
+              ...item,
+              subcats: [...item.subcats, ...selected],
+              subsubcats: {
+                ...(item.subsubcats ?? {}),
+                ...movedChildren,
+              },
+            };
+          }
+
+          return item;
+        }),
+        sentences: current.sentences.map((sentence) =>
+          sentence.cat === sourceCategoryName &&
+          selected.includes(sentence.subcat)
+            ? { ...sentence, cat: targetCategoryName }
+            : sentence,
+        ),
+      });
+
+      return true;
+    },
+    [commit, planLimits.maxSubcategoriesPerCategory],
   );
 
   const resetStudyProgress = useCallback(() => {
     const approved = window.confirm(
       "Tüm çalışma ilerlemesi sıfırlanacak.\n\nCümleler ve kategoriler silinmeyecek. Devam edilsin mi?",
     );
-  
+
     if (!approved) {
       return;
     }
-  
-    setAppData((current) => ({
+
+    const current = appDataRef.current;
+    commit({
       ...current,
-  
       sentences: current.sentences.map((sentence) => ({
         ...sentence,
         srs: createNewSrs(),
       })),
-  
       stats: {
         streak: 0,
         lastStudyDay: null,
         days: {},
-        notifyEnabled:
-          current.stats.notifyEnabled ?? false,
+        notifyEnabled: current.stats.notifyEnabled ?? false,
       },
-    }));
-  
+    });
+
     window.alert(
       "Çalışma ilerlemesi sıfırlandı. Cümleler ve kategoriler korundu.",
     );
-  }, []);
-
+  }, [commit]);
 
   const resetCategorySrs = useCallback(
     (categoryName: string) => {
-      setAppData((current) => ({
+      const current = appDataRef.current;
+      commit({
         ...current,
-        sentences: current.sentences.map(
-          (sentence) =>
-            sentence.cat === categoryName
-              ? {
-                  ...sentence,
-                  srs: createNewSrs(),
-                }
-              : sentence,
+        sentences: current.sentences.map((sentence) =>
+          sentence.cat === categoryName
+            ? { ...sentence, srs: createNewSrs() }
+            : sentence,
         ),
-      }));
+      });
     },
-    [],
+    [commit],
   );
 
   const resetSubcategorySrs = useCallback(
@@ -749,59 +1184,64 @@ export function useAppData(
       categoryName: string,
       subcategoryName: string,
     ) => {
-      setAppData((current) => ({
+      const current = appDataRef.current;
+      commit({
         ...current,
-        sentences: current.sentences.map(
-          (sentence) =>
-            sentence.cat === categoryName &&
-            sentence.subcat ===
-              subcategoryName
-              ? {
-                  ...sentence,
-                  srs: createNewSrs(),
-                }
-              : sentence,
+        sentences: current.sentences.map((sentence) =>
+          sentence.cat === categoryName &&
+          sentence.subcat === subcategoryName
+            ? { ...sentence, srs: createNewSrs() }
+            : sentence,
         ),
-      }));
+      });
     },
-    [],
+    [commit],
+  );
+
+  const resetSubsubcategorySrs = useCallback(
+    (
+      categoryName: string,
+      subcategoryName: string,
+      subsubcategoryName: string,
+    ) => {
+      const current = appDataRef.current;
+      commit({
+        ...current,
+        sentences: current.sentences.map((sentence) =>
+          sentence.cat === categoryName &&
+          sentence.subcat === subcategoryName &&
+          sentence.subsubcat === subsubcategoryName
+            ? { ...sentence, srs: createNewSrs() }
+            : sentence,
+        ),
+      });
+    },
+    [commit],
   );
 
   const replaceAppData = useCallback(
     (newData: AppData) => {
-      const repairedData =
-        repairAppData(newData);
-
-      appDataRef.current = repairedData;
-      setAppData(repairedData);
+      commit(repairAppData(newData));
     },
-    [],
+    [commit],
   );
 
   const clearLocalData = useCallback(() => {
     try {
       window.localStorage.removeItem(STORAGE_KEY);
     } catch (error) {
-      console.error(
-        "Yerel veriler temizlenemedi:",
-        error,
-      );
+      console.error("Yerel veriler temizlenemedi:", error);
     }
 
-    const defaultData =
-      cloneDefaultData();
-
-    appDataRef.current = defaultData;
-    setAppData(defaultData);
-  }, []);
+    commit(cloneDefaultData());
+  }, [commit]);
 
   const totalDue = useMemo(() => {
     const now = Date.now();
 
     return appData.sentences.filter(
       (sentence) =>
-        sentence.srs.reps === 0 ||
-        sentence.srs.due <= now,
+        sentence.srs.reps === 0 || sentence.srs.due <= now,
     ).length;
   }, [appData.sentences]);
 
@@ -812,8 +1252,11 @@ export function useAppData(
     resetStudyProgress,
     resetCategorySrs,
     resetSubcategorySrs,
+    resetSubsubcategorySrs,
     updateSentence,
     deleteSentence,
+    deleteSentences,
+    moveSentences,
     rateSentence,
     addCategory,
     updateCategory,
@@ -821,6 +1264,10 @@ export function useAppData(
     addSubcategory,
     renameSubcategory,
     deleteSubcategory,
+    addSubsubcategory,
+    renameSubsubcategory,
+    deleteSubsubcategory,
+    moveSubcategories,
     replaceAppData,
     clearLocalData,
     totalDue,

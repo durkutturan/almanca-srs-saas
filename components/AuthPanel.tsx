@@ -19,7 +19,7 @@ export default function AuthPanel({
 }: AuthPanelProps) {
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-white/10 bg-[#1e293b] px-3 py-2.5 text-xs text-[#94a3b8]">
+      <div className="rounded-xl border border-violet-100 bg-white px-3 py-2.5 text-xs font-semibold text-[#7c7190] shadow-sm">
         ⏳ Kullanıcı bilgisi yükleniyor...
       </div>
     );
@@ -27,18 +27,18 @@ export default function AuthPanel({
 
   if (!user) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-[#1e293b] p-4">
-        <div className="text-sm font-extrabold">
+      <div className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+        <div className="text-sm font-black text-[#34294a]">
           ☁️ Bulut hesabı
         </div>
 
-        <div className="mt-1 text-[10px] leading-4 text-[#94a3b8]">
+        <div className="mt-1 text-[10px] leading-4 text-[#7c7190]">
           Verilerini daha sonra telefon ve
           bilgisayar arasında eşitlemek için giriş yap.
         </div>
 
         {error && (
-          <div className="mt-3 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[10px] text-[#f43f5e]">
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-semibold text-rose-600">
             {error}
           </div>
         )}
@@ -46,7 +46,7 @@ export default function AuthPanel({
         <button
           type="button"
           onClick={onLogin}
-          className="mt-3 w-full rounded-xl border border-sky-400/30 bg-sky-400/10 px-3 py-2.5 text-xs font-extrabold text-[#38bdf8]"
+          className="mt-3 w-full rounded-xl border border-violet-200 bg-gradient-to-r from-violet-600 to-fuchsia-500 px-3 py-3 text-xs font-black text-white shadow-[0_10px_24px_rgba(124,58,237,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(124,58,237,0.28)]"
         >
           Google ile Giriş Yap
         </button>
@@ -55,31 +55,31 @@ export default function AuthPanel({
   }
 
   return (
-    <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-3">
+    <div className="rounded-2xl border border-emerald-200 bg-white p-3 shadow-sm">
       <div className="flex items-center gap-3">
         {user.photoURL ? (
           <img
             src={user.photoURL}
             alt=""
-            className="h-10 w-10 rounded-full object-cover"
+            className="h-10 w-10 rounded-full border border-violet-100 object-cover"
             referrerPolicy="no-referrer"
           />
         ) : (
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-100 text-[#5b21b6]">
             👤
           </div>
         )}
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-extrabold">
+          <div className="truncate text-xs font-black text-[#34294a]">
             {user.displayName || "Kullanıcı"}
           </div>
 
-          <div className="truncate text-[10px] text-[#94a3b8]">
+          <div className="truncate text-[10px] text-[#7c7190]">
             {user.email}
           </div>
 
-          <div className="mt-1 text-[9px] font-bold text-[#10b981]">
+          <div className="mt-1 text-[9px] font-bold text-emerald-600">
             ● Google hesabı bağlı
           </div>
         </div>
@@ -87,14 +87,14 @@ export default function AuthPanel({
         <button
           type="button"
           onClick={onLogout}
-          className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 py-1.5 text-[10px] font-extrabold text-[#f43f5e]"
+          className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-black text-rose-600 transition hover:bg-rose-100"
         >
           Çıkış
         </button>
       </div>
 
       {error && (
-        <div className="mt-2 text-[10px] text-[#f43f5e]">
+        <div className="mt-2 text-[10px] font-semibold text-rose-600">
           {error}
         </div>
       )}

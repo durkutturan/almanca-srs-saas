@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   canUseFeature,
   getFeatureLabel,
@@ -36,6 +36,7 @@ type CategoryPickerProps = {
 type ParsedCategory = {
   category: string;
   subcategory: string;
+  subsubcategory: string;
 };
 
 const INITIAL_FORM: FormState = {
@@ -46,23 +47,52 @@ const INITIAL_FORM: FormState = {
   grammar: "",
 };
 
+const LAST_CATEGORY_STORAGE_KEY = "cumleSRSLastCategoryPath";
+
+function makeCategoryValue(
+  category: string,
+  subcategory = "",
+  subsubcategory = "",
+) {
+  return [category, subcategory, subsubcategory].join("|");
+}
+
 function parseCategoryValue(
   categoryValue: string,
 ): ParsedCategory {
-  const separatorIndex = categoryValue.indexOf("|");
-
-  if (separatorIndex < 0) {
-    return {
-      category: categoryValue,
-      subcategory: "",
-    };
-  }
+  const [category = "", subcategory = "", subsubcategory = ""] =
+    categoryValue.split("|");
 
   return {
-    category: categoryValue.slice(0, separatorIndex),
-    subcategory:
-      categoryValue.slice(separatorIndex + 1),
+    category,
+    subcategory,
+    subsubcategory,
   };
+}
+
+function categoryValueExists(
+  categories: Category[],
+  categoryValue: string,
+) {
+  if (!categoryValue) return false;
+
+  const { category, subcategory, subsubcategory } =
+    parseCategoryValue(categoryValue);
+
+  const categoryItem = categories.find(
+    (item) => item.name === category,
+  );
+
+  if (!categoryItem) return false;
+  if (!subcategory) return true;
+  if (!categoryItem.subcats.includes(subcategory)) return false;
+  if (!subsubcategory) return true;
+
+  return (
+    categoryItem.subsubcats?.[subcategory]?.includes(
+      subsubcategory,
+    ) ?? false
+  );
 }
 
 function getCategoryLabel(
@@ -73,7 +103,7 @@ function getCategoryLabel(
     return "Kategori seç";
   }
 
-  const { category, subcategory } =
+  const { category, subcategory, subsubcategory } =
     parseCategoryValue(categoryValue);
 
   const categoryItem = categories.find(
@@ -82,9 +112,13 @@ function getCategoryLabel(
 
   const icon = categoryItem?.icon || "📁";
 
-  return subcategory
-    ? `${icon} ${category} › ${subcategory}`
-    : `${icon} ${category}`;
+  return [
+    `${icon} ${category}`,
+    subcategory,
+    subsubcategory,
+  ]
+    .filter(Boolean)
+    .join(" › ");
 }
 
 function CategoryPicker({
@@ -94,29 +128,60 @@ function CategoryPicker({
   disabled = false,
 }: CategoryPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
-
-  const selectedCategoryName =
-    parseCategoryValue(value).category;
+  const selected = parseCategoryValue(value);
+  const selectedOptionRef = useRef<HTMLButtonElement | null>(null);
 
   const [expandedCategory, setExpandedCategory] =
     useState<string | null>(
-      selectedCategoryName ||
-        categories[0]?.name ||
-        null,
+      selected.category || categories[0]?.name || null,
     );
+
+  const [expandedSubcategories, setExpandedSubcategories] =
+    useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const current = parseCategoryValue(value);
+
+    if (current.category) {
+      setExpandedCategory(current.category);
+    }
+
+    if (current.category && current.subcategory) {
+      const subKey = `${current.category}|${current.subcategory}`;
+      setExpandedSubcategories((state) => ({
+        ...state,
+        [subKey]: true,
+      }));
+    }
+
+    const timer = window.setTimeout(() => {
+      selectedOptionRef.current?.scrollIntoView({
+        block: "center",
+        behavior: "auto",
+      });
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [isOpen, value]);
 
   function chooseCategory(nextValue: string) {
     onChange(nextValue);
     setIsOpen(false);
   }
 
+  function selectedRef(
+    optionValue: string,
+  ): React.Ref<HTMLButtonElement> | undefined {
+    return value === optionValue ? selectedOptionRef : undefined;
+  }
+
   return (
     <div className="relative mb-2.5">
       <button
         type="button"
-        onClick={() =>
-          setIsOpen((current) => !current)
-        }
+        onClick={() => setIsOpen((current) => !current)}
         disabled={disabled}
         className="input-field flex w-full items-center justify-between text-left disabled:cursor-not-allowed disabled:opacity-60"
         aria-expanded={isOpen}
@@ -138,104 +203,181 @@ function CategoryPicker({
       </button>
 
       {isOpen && !disabled && (
-        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-white/10 bg-[#0f172a] p-2 shadow-2xl">
-          {categories.map((category) => {
-            const isExpanded =
-              expandedCategory === category.name;
+        <div
+          className="fixed inset-0 z-[220] flex items-end justify-center bg-black/60 px-3 pb-[84px] pt-12 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsOpen(false);
+            }
+          }}
+        >
+          <div className="flex max-h-[calc(100dvh-120px)] w-full max-w-[620px] flex-col overflow-hidden rounded-[22px] border border-white/10 bg-[#0f172a] shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
+              <div>
+                <div className="text-sm font-extrabold">
+                  📂 Kategori seç
+                </div>
+                <div className="mt-0.5 max-w-[460px] truncate text-[9px] text-[#94a3b8]">
+                  {getCategoryLabel(categories, value)}
+                </div>
+              </div>
 
-            const directValue =
-              `${category.name}|`;
-
-            return (
-              <div
-                key={category.name}
-                className="mb-1 last:mb-0"
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs"
               >
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      chooseCategory(directValue)
-                    }
-                    className={[
-                      "min-w-0 flex-1 rounded-lg px-3 py-2 text-left text-sm font-extrabold",
-                      value === directValue
-                        ? "bg-sky-500/20 text-sky-300"
-                        : "bg-white/5 hover:bg-white/10",
-                    ].join(" ")}
-                  >
-                    <span className="truncate">
-                      {category.icon || "📁"}{" "}
-                      {category.name}
-                    </span>
-                  </button>
+                ✕
+              </button>
+            </div>
 
-                  {category.subcats.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedCategory(
-                          isExpanded
-                            ? null
-                            : category.name,
-                        )
-                      }
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 text-[10px] hover:bg-white/10"
-                      aria-label={`${category.name} alt kategorilerini aç`}
-                      aria-expanded={isExpanded}
-                    >
-                      <span
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-5">
+              {categories.map((category) => {
+                const isExpanded =
+                  expandedCategory === category.name;
+                const directValue = makeCategoryValue(category.name);
+
+                return (
+                  <div
+                    key={category.name}
+                    className="mb-1 last:mb-0"
+                  >
+                    <div className="flex items-center gap-1">
+                      <button
+                        ref={selectedRef(directValue)}
+                        type="button"
+                        onClick={() => chooseCategory(directValue)}
                         className={[
-                          "transition-transform",
-                          isExpanded
-                            ? "rotate-180"
-                            : "",
+                          "min-w-0 flex-1 rounded-lg px-3 py-2 text-left text-sm font-extrabold",
+                          value === directValue
+                            ? "bg-sky-500/20 text-sky-300"
+                            : "bg-white/5 hover:bg-white/10",
                         ].join(" ")}
                       >
-                        ▼
-                      </span>
-                    </button>
-                  )}
-                </div>
+                        <span className="truncate">
+                          {category.icon || "📁"} {category.name}
+                        </span>
+                      </button>
 
-                {isExpanded &&
-                  category.subcats.length > 0 && (
-                    <div className="mt-1 space-y-1 pl-3">
-                      {category.subcats.map(
-                        (subcategory) => {
-                          const optionValue =
-                            `${category.name}|${subcategory}`;
-
-                          return (
-                            <button
-                              type="button"
-                              key={optionValue}
-                              onClick={() =>
-                                chooseCategory(
-                                  optionValue,
-                                )
-                              }
-                              className={[
-                                "w-full rounded-lg px-3 py-2 text-left text-xs font-bold",
-                                value === optionValue
-                                  ? "bg-sky-500/20 text-sky-300"
-                                  : "bg-white/[0.03] text-slate-200 hover:bg-white/10",
-                              ].join(" ")}
-                            >
-                              ↳ {subcategory}
-                            </button>
-                          );
-                        },
+                      {category.subcats.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedCategory(
+                              isExpanded ? null : category.name,
+                            )
+                          }
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 text-[10px] hover:bg-white/10"
+                          aria-label={`${category.name} alt kategorilerini aç`}
+                          aria-expanded={isExpanded}
+                        >
+                          <span
+                            className={[
+                              "transition-transform",
+                              isExpanded ? "rotate-180" : "",
+                            ].join(" ")}
+                          >
+                            ▼
+                          </span>
+                        </button>
                       )}
                     </div>
-                  )}
-              </div>
-            );
-          })}
+
+                    {isExpanded && category.subcats.length > 0 && (
+                      <div className="mt-1 space-y-1 pl-3">
+                        {category.subcats.map((subcategory) => {
+                          const optionValue = makeCategoryValue(
+                            category.name,
+                            subcategory,
+                          );
+                          const children =
+                            category.subsubcats?.[subcategory] ?? [];
+                          const subKey = `${category.name}|${subcategory}`;
+                          const childOpen = Boolean(
+                            expandedSubcategories[subKey],
+                          );
+
+                          return (
+                            <div key={optionValue}>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  ref={selectedRef(optionValue)}
+                                  type="button"
+                                  onClick={() =>
+                                    chooseCategory(optionValue)
+                                  }
+                                  className={[
+                                    "min-w-0 flex-1 rounded-lg px-3 py-2 text-left text-xs font-bold",
+                                    value === optionValue
+                                      ? "bg-sky-500/20 text-sky-300"
+                                      : "bg-white/[0.03] text-slate-200 hover:bg-white/10",
+                                  ].join(" ")}
+                                >
+                                  ↳ {subcategory}
+                                </button>
+
+                                {children.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedSubcategories(
+                                        (current) => ({
+                                          ...current,
+                                          [subKey]: !current[subKey],
+                                        }),
+                                      )
+                                    }
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-[9px] hover:bg-white/10"
+                                    aria-expanded={childOpen}
+                                  >
+                                    {childOpen ? "▲" : "▼"}
+                                  </button>
+                                )}
+                              </div>
+
+                              {childOpen && children.length > 0 && (
+                                <div className="mt-1 space-y-1 pl-4">
+                                  {children.map((child) => {
+                                    const childValue = makeCategoryValue(
+                                      category.name,
+                                      subcategory,
+                                      child,
+                                    );
+
+                                    return (
+                                      <button
+                                        ref={selectedRef(childValue)}
+                                        type="button"
+                                        key={childValue}
+                                        onClick={() =>
+                                          chooseCategory(childValue)
+                                        }
+                                        className={[
+                                          "w-full rounded-lg border-l-2 px-3 py-2 text-left text-[11px] font-bold",
+                                          value === childValue
+                                            ? "border-violet-400 bg-violet-500/20 text-violet-200"
+                                            : "border-violet-400/30 bg-violet-400/[0.05] text-slate-300 hover:bg-violet-400/10",
+                                        ].join(" ")}
+                                      >
+                                        ↳↳ {child}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>
-
   );
 }
 
@@ -245,40 +387,72 @@ export default function SentenceForm({
   accessLevel = "pro",
   onOpenPlans,
 }: SentenceFormProps) {
-  const [form, setForm] =
-    useState<FormState>(INITIAL_FORM);
-
+  const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [message, setMessage] = useState("");
-
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [showProLock, setShowProLock] =
-    useState(false);
+  const [showProLock, setShowProLock] = useState(false);
   const [bulkText, setBulkText] = useState("");
-  const [bulkCategoryValue, setBulkCategoryValue] =
-    useState("");
+  const [bulkCategoryValue, setBulkCategoryValue] = useState("");
   const [bulkIcon, setBulkIcon] = useState("");
-  const [bulkGrammar, setBulkGrammar] =
-    useState("");
-  const [bulkMessage, setBulkMessage] =
-    useState("");
+  const [bulkGrammar, setBulkGrammar] = useState("");
+  const [bulkMessage, setBulkMessage] = useState("");
+  const [lastCategoryValue, setLastCategoryValue] = useState("");
 
   const firstCategoryValue = useMemo(() => {
     const firstCategory = categories[0];
-
-    if (!firstCategory) {
-      return "";
-    }
-
-    return `${firstCategory.name}|`;
+    return firstCategory
+      ? makeCategoryValue(firstCategory.name)
+      : "";
   }, [categories]);
 
+  const rememberedCategoryValue =
+    categoryValueExists(categories, lastCategoryValue)
+      ? lastCategoryValue
+      : "";
+
   const selectedCategoryValue =
-    form.categoryValue || firstCategoryValue;
+    form.categoryValue ||
+    rememberedCategoryValue ||
+    firstCategoryValue;
 
   const selectedBulkCategoryValue =
     bulkCategoryValue ||
+    rememberedCategoryValue ||
     selectedCategoryValue ||
     firstCategoryValue;
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(
+        LAST_CATEGORY_STORAGE_KEY,
+      );
+
+      if (saved && categoryValueExists(categories, saved)) {
+        setLastCategoryValue(saved);
+      }
+    } catch (error) {
+      console.error(
+        "Son kategori seçimi okunamadı:",
+        error,
+      );
+    }
+  }, [categories]);
+
+  function rememberCategory(value: string) {
+    setLastCategoryValue(value);
+
+    try {
+      window.localStorage.setItem(
+        LAST_CATEGORY_STORAGE_KEY,
+        value,
+      );
+    } catch (error) {
+      console.error(
+        "Son kategori seçimi kaydedilemedi:",
+        error,
+      );
+    }
+  }
 
   function updateField<Key extends keyof FormState>(
     field: Key,
@@ -299,27 +473,27 @@ export default function SentenceForm({
     const tr = form.tr.trim();
 
     if (!de || !tr) {
-      setMessage(
-        "Almanca ve Türkçe alanlarını doldurun.",
-      );
+      setMessage("Almanca ve Türkçe alanlarını doldurun.");
       return;
     }
 
     if (!selectedCategoryValue) {
-      setMessage(
-        "Önce bir kategori oluşturmalısınız.",
-      );
+      setMessage("Önce bir kategori oluşturmalısınız.");
       return;
     }
 
-    const { category, subcategory } =
-      parseCategoryValue(selectedCategoryValue);
+    const {
+      category,
+      subcategory,
+      subsubcategory,
+    } = parseCategoryValue(selectedCategoryValue);
 
     onSave({
       de,
       tr,
       category,
       subcategory,
+      subsubcategory,
       icon: form.icon,
       grammar: form.grammar,
     });
@@ -328,33 +502,20 @@ export default function SentenceForm({
       ...INITIAL_FORM,
       categoryValue: selectedCategoryValue,
     });
-
     setMessage("Cümle kaydedildi. ✅");
   }
 
   function handleBulkToggle() {
-    if (
-      !canUseFeature(
-        accessLevel,
-        "bulkAdd",
-      )
-    ) {
+    if (!canUseFeature(accessLevel, "bulkAdd")) {
       setShowProLock(true);
       return;
     }
 
-    setBulkOpen(
-      (current) => !current,
-    );
+    setBulkOpen((current) => !current);
   }
 
   function handleBulkSave() {
-    if (
-      !canUseFeature(
-        accessLevel,
-        "bulkAdd",
-      )
-    ) {
+    if (!canUseFeature(accessLevel, "bulkAdd")) {
       setShowProLock(true);
       return;
     }
@@ -362,9 +523,7 @@ export default function SentenceForm({
     setBulkMessage("");
 
     if (!selectedBulkCategoryValue) {
-      setBulkMessage(
-        "Önce bir kategori oluşturmalısınız.",
-      );
+      setBulkMessage("Önce bir kategori oluşturmalısınız.");
       return;
     }
 
@@ -380,29 +539,18 @@ export default function SentenceForm({
       return;
     }
 
-    const parsedLines: Array<{
-      de: string;
-      tr: string;
-    }> = [];
-
+    const parsedLines: Array<{ de: string; tr: string }> = [];
     const invalidLineNumbers: number[] = [];
 
     lines.forEach((line, index) => {
       const pipeIndex = line.indexOf("|");
       const tabIndex = line.indexOf("\t");
-
       let separatorIndex = -1;
 
       if (pipeIndex >= 0 && tabIndex >= 0) {
-        separatorIndex = Math.min(
-          pipeIndex,
-          tabIndex,
-        );
+        separatorIndex = Math.min(pipeIndex, tabIndex);
       } else {
-        separatorIndex = Math.max(
-          pipeIndex,
-          tabIndex,
-        );
+        separatorIndex = Math.max(pipeIndex, tabIndex);
       }
 
       if (separatorIndex < 0) {
@@ -410,13 +558,8 @@ export default function SentenceForm({
         return;
       }
 
-      const de = line
-        .slice(0, separatorIndex)
-        .trim();
-
-      const tr = line
-        .slice(separatorIndex + 1)
-        .trim();
+      const de = line.slice(0, separatorIndex).trim();
+      const tr = line.slice(separatorIndex + 1).trim();
 
       if (!de || !tr) {
         invalidLineNumbers.push(index + 1);
@@ -435,10 +578,11 @@ export default function SentenceForm({
       return;
     }
 
-    const { category, subcategory } =
-      parseCategoryValue(
-        selectedBulkCategoryValue,
-      );
+    const {
+      category,
+      subcategory,
+      subsubcategory,
+    } = parseCategoryValue(selectedBulkCategoryValue);
 
     parsedLines.forEach(({ de, tr }) => {
       onSave({
@@ -446,6 +590,7 @@ export default function SentenceForm({
         tr,
         category,
         subcategory,
+        subsubcategory,
         icon: bulkIcon,
         grammar: bulkGrammar,
       });
@@ -460,215 +605,201 @@ export default function SentenceForm({
   return (
     <>
       <div className="space-y-3">
-      <div className="app-card">
-        <input
-          type="text"
-          value={form.icon}
-          onChange={(event) =>
-            updateField("icon", event.target.value)
-          }
-          className="input-field"
-          placeholder="🖼️ İkon (örn: 💬)"
-        />
+        <div className="app-card">
+          <input
+            type="text"
+            value={form.icon}
+            onChange={(event) =>
+              updateField("icon", event.target.value)
+            }
+            className="input-field"
+            placeholder="🖼️ İkon (örn: 💬)"
+          />
 
-        <textarea
-          value={form.de}
-          onChange={(event) =>
-            updateField("de", event.target.value)
-          }
-          className="input-field flag-de"
-          placeholder="Örn: Ich möchte die Suppe *probieren*."
-        />
+          <textarea
+            value={form.de}
+            onChange={(event) =>
+              updateField("de", event.target.value)
+            }
+            className="input-field flag-de"
+            placeholder="Örn: Ich möchte die Suppe *probieren*."
+          />
 
-        <textarea
-          value={form.tr}
-          onChange={(event) =>
-            updateField("tr", event.target.value)
-          }
-          className="input-field flag-tr"
-          placeholder="Örn: Çorbayı tatmak istiyorum."
-        />
+          <textarea
+            value={form.tr}
+            onChange={(event) =>
+              updateField("tr", event.target.value)
+            }
+            className="input-field flag-tr"
+            placeholder="Örn: Çorbayı tatmak istiyorum."
+          />
 
-        <div className="cloze-info">
-          💡 <strong>Cloze:</strong> Boşluk yapmak
-          istediğin kelimeyi <strong>*yıldız*</strong>{" "}
-          içine al. Örn:{" "}
-          <em>Ich habe *gegessen*.</em>
+          <div className="cloze-info">
+            💡 <strong>Cloze:</strong> Boşluk yapmak istediğin
+            kelimeyi <strong>*yıldız*</strong> içine al. Örn:{" "}
+            <em>Ich habe *gegessen*.</em>
+          </div>
+
+          <CategoryPicker
+            categories={categories}
+            value={selectedCategoryValue}
+            onChange={(value) => {
+              updateField("categoryValue", value);
+              rememberCategory(value);
+            }}
+            disabled={categories.length === 0}
+          />
+
+          <input
+            type="text"
+            value={form.grammar}
+            onChange={(event) =>
+              updateField("grammar", event.target.value)
+            }
+            className="input-field grammar-input"
+            placeholder="💡 Opsiyonel: Kısa Gramer Bilgisi"
+          />
+
+          {message && (
+            <div
+              className={[
+                "mb-2.5 rounded-lg px-3 py-2 text-xs font-bold",
+                message.includes("✅")
+                  ? "bg-emerald-500/10 text-emerald-400"
+                  : "bg-rose-500/10 text-rose-400",
+              ].join(" ")}
+            >
+              {message}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSave}
+            className="app-button app-button-primary"
+          >
+            ✚ Kaydet
+          </button>
         </div>
 
-        <CategoryPicker
-          categories={categories}
-          value={selectedCategoryValue}
-          onChange={(value) =>
-            updateField("categoryValue", value)
-          }
-          disabled={categories.length === 0}
-        />
-
-        <input
-          type="text"
-          value={form.grammar}
-          onChange={(event) =>
-            updateField(
-              "grammar",
-              event.target.value,
-            )
-          }
-          className="input-field grammar-input"
-          placeholder="💡 Opsiyonel: Kısa Gramer Bilgisi"
-        />
-
-        {message && (
-          <div
-            className={[
-              "mb-2.5 rounded-lg px-3 py-2 text-xs font-bold",
-              message.includes("✅")
-                ? "bg-emerald-500/10 text-emerald-400"
-                : "bg-rose-500/10 text-rose-400",
-            ].join(" ")}
+        <div className="app-card">
+          <button
+            type="button"
+            onClick={handleBulkToggle}
+            className="flex w-full items-center justify-between text-left"
+            aria-expanded={bulkOpen}
           >
-            {message}
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={handleSave}
-          className="app-button app-button-primary"
-        >
-          ✚ Kaydet
-        </button>
-      </div>
-
-      <div className="app-card">
-        <button
-          type="button"
-          onClick={handleBulkToggle}
-          className="flex w-full items-center justify-between text-left"
-          aria-expanded={bulkOpen}
-        >
-          <span>
-            <span className="flex items-center gap-2 text-sm font-extrabold">
-              <span>📚 Toplu Cümle Ekle</span>
-
-              {accessLevel === "free" && (
-                <span className="rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-black text-amber-300">
-                  PRO
-                </span>
-              )}
+            <span>
+              <span className="flex items-center gap-2 text-sm font-extrabold">
+                <span>📚 Toplu Cümle Ekle</span>
+                {accessLevel === "free" && (
+                  <span className="rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[8px] font-black text-amber-300">
+                    PRO
+                  </span>
+                )}
+              </span>
+              <span className="mt-1 block text-[11px] text-slate-400">
+                Birden fazla cümleyi aynı kategori yoluna ekle
+              </span>
             </span>
 
-            <span className="mt-1 block text-[11px] text-slate-400">
-              Birden fazla cümleyi aynı kategoriye
-              ekle
-            </span>
-          </span>
-
-          <span
-            className={[
-              "ml-3 text-xs transition-transform",
-              bulkOpen ? "rotate-180" : "",
-            ].join(" ")}
-          >
-            ▼
-          </span>
-        </button>
-
-        {bulkOpen && (
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <div className="cloze-info">
-              Her satırı şu şekilde yaz:
-              <br />
-              <strong>
-                Almanca cümle | Türkçe cümle
-              </strong>
-              <br />
-              Örnek:
-              <br />
-              <em>
-                Ich bin müde | Ben yorgunum
-              </em>
-            </div>
-
-            <CategoryPicker
-              categories={categories}
-              value={selectedBulkCategoryValue}
-              onChange={(value) => {
-                setBulkCategoryValue(value);
-                setBulkMessage("");
-              }}
-              disabled={categories.length === 0}
-            />
-
-            <input
-              type="text"
-              value={bulkIcon}
-              onChange={(event) => {
-                setBulkIcon(event.target.value);
-                setBulkMessage("");
-              }}
-              className="input-field"
-              placeholder="🖼️ Tüm cümleler için ikon (opsiyonel)"
-            />
-
-            <input
-              type="text"
-              value={bulkGrammar}
-              onChange={(event) => {
-                setBulkGrammar(
-                  event.target.value,
-                );
-                setBulkMessage("");
-              }}
-              className="input-field grammar-input"
-              placeholder="💡 Tüm cümleler için gramer notu (opsiyonel)"
-            />
-
-            <textarea
-              value={bulkText}
-              onChange={(event) => {
-                setBulkText(event.target.value);
-                setBulkMessage("");
-              }}
-              className="input-field min-h-48 font-mono text-xs"
-              placeholder={
-                "Ich bin müde | Ben yorgunum\nIch habe Hunger | Acıktım\nWo ist der Bahnhof? | Tren istasyonu nerede?"
-              }
-            />
-
-            {bulkMessage && (
-              <div
-                className={[
-                  "mb-2.5 rounded-lg px-3 py-2 text-xs font-bold",
-                  bulkMessage.includes("✅")
-                    ? "bg-emerald-500/10 text-emerald-400"
-                    : "bg-rose-500/10 text-rose-400",
-                ].join(" ")}
-              >
-                {bulkMessage}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={handleBulkSave}
-              className="app-button app-button-primary"
+            <span
+              className={[
+                "ml-3 text-xs transition-transform",
+                bulkOpen ? "rotate-180" : "",
+              ].join(" ")}
             >
-              📥 Toplu Kaydet
-            </button>
-          </div>
-        )}
+              ▼
+            </span>
+          </button>
+
+          {bulkOpen && (
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <div className="cloze-info">
+                Her satırı şu şekilde yaz:
+                <br />
+                <strong>Almanca cümle | Türkçe cümle</strong>
+                <br />
+                Örnek:
+                <br />
+                <em>Ich bin müde | Ben yorgunum</em>
+              </div>
+
+              <CategoryPicker
+                categories={categories}
+                value={selectedBulkCategoryValue}
+                onChange={(value) => {
+                  setBulkCategoryValue(value);
+                  rememberCategory(value);
+                  setBulkMessage("");
+                }}
+                disabled={categories.length === 0}
+              />
+
+              <input
+                type="text"
+                value={bulkIcon}
+                onChange={(event) => {
+                  setBulkIcon(event.target.value);
+                  setBulkMessage("");
+                }}
+                className="input-field"
+                placeholder="🖼️ Tüm cümleler için ikon (opsiyonel)"
+              />
+
+              <input
+                type="text"
+                value={bulkGrammar}
+                onChange={(event) => {
+                  setBulkGrammar(event.target.value);
+                  setBulkMessage("");
+                }}
+                className="input-field grammar-input"
+                placeholder="💡 Tüm cümleler için gramer notu (opsiyonel)"
+              />
+
+              <textarea
+                value={bulkText}
+                onChange={(event) => {
+                  setBulkText(event.target.value);
+                  setBulkMessage("");
+                }}
+                className="input-field min-h-48 font-mono text-xs"
+                placeholder={
+                  "Ich bin müde | Ben yorgunum\nIch habe Hunger | Acıktım\nWo ist der Bahnhof? | Tren istasyonu nerede?"
+                }
+              />
+
+              {bulkMessage && (
+                <div
+                  className={[
+                    "mb-2.5 rounded-lg px-3 py-2 text-xs font-bold",
+                    bulkMessage.includes("✅")
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : "bg-rose-500/10 text-rose-400",
+                  ].join(" ")}
+                >
+                  {bulkMessage}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleBulkSave}
+                className="app-button app-button-primary"
+              >
+                📥 Toplu Kaydet
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
 
       {showProLock && (
         <div
           className="fixed inset-0 z-[210] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm"
           onMouseDown={(event) => {
-            if (
-              event.target ===
-              event.currentTarget
-            ) {
+            if (event.target === event.currentTarget) {
               setShowProLock(false);
             }
           }}
@@ -678,18 +809,16 @@ export default function SentenceForm({
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-400/20 bg-amber-400/10 text-3xl">
                 👑
               </div>
-
               <h3 className="mt-3 text-lg font-black">
                 Pro özelliği
               </h3>
-
               <p className="mt-2 text-xs leading-5 text-[#94a3b8]">
                 <strong className="text-amber-300">
                   {getFeatureLabel("bulkAdd")}
                 </strong>{" "}
-                Free planda kullanılamaz. Pro plan
-                veya aktif Pro deneme ile birden fazla
-                cümleyi aynı anda ekleyebilirsin.
+                Free planda kullanılamaz. Pro plan veya aktif Pro
+                deneme ile birden fazla cümleyi aynı anda
+                ekleyebilirsin.
               </p>
             </div>
 
@@ -709,9 +838,7 @@ export default function SentenceForm({
 
               <button
                 type="button"
-                onClick={() =>
-                  setShowProLock(false)
-                }
+                onClick={() => setShowProLock(false)}
                 className="w-full rounded-xl border border-white/10 bg-[#0f172a] px-4 py-3 text-xs font-extrabold text-[#cbd5e1]"
               >
                 Kapat

@@ -6,11 +6,13 @@ export const DEFAULT_APP_DATA: AppData = {
       name: "Mutfak & Restoran",
       icon: "👨‍🍳",
       subcats: ["Müşteri İletişimi", "Sipariş Alma"],
+      subsubcats: {},
     },
     {
       name: "Günlük Konuşma",
       icon: "🗣️",
       subcats: ["Selamlaşma", "Alışveriş"],
+      subsubcats: {},
     },
   ],
 

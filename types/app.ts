@@ -27,6 +27,15 @@ export type Category = {
   name: string;
   icon: string;
   subcats: string[];
+
+  /**
+   * Geriye uyumlu 3. seviye kategori yapısı.
+   * Anahtar: alt kategori adı
+   * Değer: o alt kategorinin alt-alt kategorileri
+   *
+   * Eski verilerde bu alan yoktur; bu yüzden opsiyoneldir.
+   */
+  subsubcats?: Record<string, string[]>;
 };
 
 export type Sentence = {
@@ -35,6 +44,12 @@ export type Sentence = {
   tr: string;
   cat: string;
   subcat: string;
+
+  /**
+   * Alt-alt kategori. Eski cümlelerde bulunmayabilir.
+   */
+  subsubcat?: string;
+
   icon: string;
   grammar: string;
   srs: SrsData;
@@ -64,6 +79,7 @@ export type NewSentenceInput = {
   tr: string;
   category: string;
   subcategory: string;
+  subsubcategory?: string;
   icon: string;
   grammar: string;
 };

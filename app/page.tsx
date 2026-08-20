@@ -127,6 +127,8 @@ export default function Home() {
     addSentence,
     updateSentence,
     deleteSentence,
+    deleteSentences,
+    moveSentences,
     rateSentence,
     addCategory,
     updateCategory,
@@ -134,9 +136,14 @@ export default function Home() {
     addSubcategory,
     renameSubcategory,
     deleteSubcategory,
+    addSubsubcategory,
+    renameSubsubcategory,
+    deleteSubsubcategory,
+    moveSubcategories,
     resetStudyProgress,
     resetCategorySrs,
     resetSubcategorySrs,
+    resetSubsubcategorySrs,
     replaceAppData,
     clearLocalData,
     totalDue,
@@ -415,60 +422,108 @@ export default function Home() {
    */
   if (!user) {
     return (
-      <main className="app-shell">
-        <section className="flex min-h-dvh flex-col justify-center px-4 py-8">
-          <div className="mb-6 text-center">
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-[24px] border border-sky-400/20 bg-sky-400/10 text-4xl shadow-[0_12px_40px_rgba(56,189,248,0.12)]">
-              🇩🇪
+      <main className="relative min-h-dvh overflow-hidden bg-[#f8f7ff] text-[#241b3a]">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-24 top-10 h-72 w-72 rounded-full bg-violet-300/35 blur-3xl" />
+          <div className="absolute -right-24 bottom-10 h-80 w-80 rounded-full bg-fuchsia-200/45 blur-3xl" />
+          <div className="absolute left-1/2 top-[-110px] h-80 w-80 -translate-x-1/2 rounded-full bg-white blur-3xl" />
+        </div>
+
+        <section className="relative mx-auto flex min-h-dvh w-full max-w-[560px] items-center px-4 py-7 sm:px-6">
+          <div className="w-full overflow-hidden rounded-[32px] border border-white/80 bg-white/85 p-5 shadow-[0_24px_80px_rgba(88,28,135,0.16)] backdrop-blur-2xl sm:p-7">
+            <div className="text-center">
+              <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[26px] bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-500 shadow-[0_16px_40px_rgba(124,58,237,0.30)]">
+                <div className="flex h-[66px] w-[66px] items-center justify-center rounded-[21px] bg-white">
+                  <div className="h-8 w-11 overflow-hidden rounded-md border border-black/10 shadow-sm">
+                    <div className="h-1/3 bg-black" />
+                    <div className="h-1/3 bg-red-600" />
+                    <div className="h-1/3 bg-yellow-400" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mx-auto mb-3 inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-violet-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Akıllı Almanca Çalışma
+              </div>
+
+              <h1 className="text-[30px] font-black tracking-tight text-[#241b3a] sm:text-4xl">
+                Almanca Cümle
+              </h1>
+
+              <p className="mx-auto mt-3 max-w-md text-[13px] leading-6 text-[#6f6680]">
+                Cümlelerini kaydet, akıllı tekrar sistemiyle öğren
+                ve tüm cihazlarında kaldığın yerden devam et.
+              </p>
             </div>
 
-            <h1 className="text-2xl font-black text-[#f8fafc]">
-              Almanca Cümle
-            </h1>
+            <div className="mt-6 grid grid-cols-3 gap-2.5">
+              <div className="rounded-2xl border border-violet-100 bg-gradient-to-b from-white to-violet-50 p-3 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100 text-lg">
+                  🃏
+                </div>
+                <div className="mt-2 text-[10px] font-black text-[#34294a]">
+                  Akıllı Kartlar
+                </div>
+                <div className="mt-1 text-[9px] leading-4 text-[#8b8198]">
+                  Cümlelerini kolay öğren
+                </div>
+              </div>
 
-            <p className="mt-2 text-sm leading-6 text-[#94a3b8]">
-              Cümlelerini kaydet, kartlarla çalış
-              ve ilerlemeni bütün cihazlarında
-              senkronize et.
+              <div className="rounded-2xl border border-violet-100 bg-gradient-to-b from-white to-violet-50 p-3 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-fuchsia-100 text-lg">
+                  🎯
+                </div>
+                <div className="mt-2 text-[10px] font-black text-[#34294a]">
+                  SRS Tekrar
+                </div>
+                <div className="mt-1 text-[9px] leading-4 text-[#8b8198]">
+                  Doğru zamanda tekrar et
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-violet-100 bg-gradient-to-b from-white to-violet-50 p-3 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 text-lg">
+                  ☁️
+                </div>
+                <div className="mt-2 text-[10px] font-black text-[#34294a]">
+                  Bulut Kaydı
+                </div>
+                <div className="mt-1 text-[9px] leading-4 text-[#8b8198]">
+                  Her cihazda senkronize
+                </div>
+              </div>
+            </div>
+
+            <div className="my-6 flex items-center gap-3">
+              <div className="h-px flex-1 bg-violet-100" />
+              <span className="text-[9px] font-black uppercase tracking-[0.18em] text-[#9a8fac]">
+                Güvenli giriş
+              </span>
+              <div className="h-px flex-1 bg-violet-100" />
+            </div>
+
+            <div className="rounded-[22px] border border-violet-100 bg-[#fbfaff] p-3.5 shadow-inner">
+              <AuthPanel
+                user={null}
+                isLoading={isAuthLoading}
+                error={authError}
+                onLogin={loginWithGoogle}
+                onLogout={handleLogout}
+              />
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[9px] font-semibold text-[#8b8198]">
+              <span>🔒 Verilerin sana özel</span>
+              <span>☁️ Bulut senkronizasyonu</span>
+              <span>⚡ Hızlı giriş</span>
+            </div>
+
+            <p className="mx-auto mt-4 max-w-md text-center text-[9px] leading-4 text-[#a59bad]">
+              Devam ederek cümlelerinin hesabına özel olarak
+              bulutta saklanmasını kabul etmiş olursun.
             </p>
           </div>
-
-          <div className="mb-4 grid grid-cols-3 gap-2">
-            <div className="rounded-xl border border-white/10 bg-[#1e293b] p-3 text-center">
-              <div className="text-xl">🃏</div>
-              <div className="mt-1 text-[10px] font-extrabold">
-                Akıllı Kartlar
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-[#1e293b] p-3 text-center">
-              <div className="text-xl">🎯</div>
-              <div className="mt-1 text-[10px] font-extrabold">
-                SRS Çalışma
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-[#1e293b] p-3 text-center">
-              <div className="text-xl">☁️</div>
-              <div className="mt-1 text-[10px] font-extrabold">
-                Bulut Kaydı
-              </div>
-            </div>
-          </div>
-
-          <AuthPanel
-            user={null}
-            isLoading={isAuthLoading}
-            error={authError}
-            onLogin={loginWithGoogle}
-            onLogout={handleLogout}
-          />
-
-          <p className="mt-5 text-center text-[10px] leading-4 text-[#64748b]">
-            Devam ederek cümlelerinin hesabına
-            özel olarak bulutta saklanmasını kabul
-            etmiş olursun.
-          </p>
         </section>
       </main>
     );
@@ -644,6 +699,8 @@ export default function Home() {
               categories={appData.categories}
               sentences={appData.sentences}
               onDelete={deleteSentence}
+              onDeleteMany={deleteSentences}
+              onMoveMany={moveSentences}
               onUpdate={updateSentence}
             />
           </>
@@ -705,11 +762,26 @@ export default function Home() {
         onDeleteSubcategory={
           deleteSubcategory
         }
+        onAddSubsubcategory={
+          addSubsubcategory
+        }
+        onRenameSubsubcategory={
+          renameSubsubcategory
+        }
+        onDeleteSubsubcategory={
+          deleteSubsubcategory
+        }
+        onMoveSubcategories={
+          moveSubcategories
+        }
         onResetCategorySrs={
           resetCategorySrs
         }
         onResetSubcategorySrs={
           resetSubcategorySrs
+        }
+        onResetSubsubcategorySrs={
+          resetSubsubcategorySrs
         }
       />
     </main>

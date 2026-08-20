@@ -282,60 +282,99 @@ function FlashExercise({
   revealed: boolean;
   onReveal: () => void;
 }) {
-  const question =
+  const [flipped, setFlipped] = useState(false);
+
+  const frontText =
     direction === "de-tr"
       ? plainText(sentence.de)
       : sentence.tr;
 
-  const answer =
+  const backText =
     direction === "de-tr"
       ? sentence.tr
       : plainText(sentence.de);
 
+  const frontLang = direction === "de-tr" ? "DE" : "TR";
+  const backLang = direction === "de-tr" ? "TR" : "DE";
+
+  function toggleCard() {
+    if (!flipped && !revealed) {
+      onReveal();
+    }
+
+    setFlipped((current) => !current);
+  }
+
+  const germanVisible =
+    (direction === "de-tr" && !flipped) ||
+    (direction === "tr-de" && flipped);
+
   return (
-    <div className="relative mb-3 min-h-[350px] rounded-[18px] border border-white/10 bg-[#1e293b] p-5">
-      {!revealed ? (
+    <div className="mb-3">
+      {sentence.grammar && (
+        <div className="mb-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-center text-xs font-bold text-[#eab308]">
+          💡 {sentence.grammar}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={toggleCard}
+        className="group relative block w-full [perspective:1200px]"
+        aria-label="Kartı çevir"
+      >
+        <div
+          className={[
+            "relative min-h-[230px] w-full transition-transform duration-500 [transform-style:preserve-3d]",
+            flipped ? "[transform:rotateY(180deg)]" : "",
+          ].join(" ")}
+        >
+          <div className="absolute inset-0 flex min-h-[230px] w-full flex-col rounded-[18px] border border-sky-400/20 bg-[#1e293b] px-5 py-5 text-center shadow-lg [backface-visibility:hidden]">
+            <div className="flex items-center justify-between text-[10px] font-extrabold text-[#94a3b8]">
+              <span>{sentence.icon || "💬"}</span>
+              <span>{frontLang}</span>
+            </div>
+
+            <div className="flex flex-1 items-center justify-center">
+              <div className="text-xl font-extrabold leading-8">
+                {frontText}
+              </div>
+            </div>
+
+            <div className="pt-4 text-[11px] font-bold text-[#94a3b8]">
+              {revealed
+                ? "Kartı çevirmek için dokun 👆"
+                : "Cevabı görmek için dokun 👆"}
+            </div>
+          </div>
+
+          <div className="absolute inset-0 flex min-h-[230px] w-full flex-col rounded-[18px] border border-violet-400/25 bg-[#1e293b] px-5 py-5 text-center shadow-lg [backface-visibility:hidden] [transform:rotateY(180deg)]">
+            <div className="flex items-center justify-between text-[10px] font-extrabold text-[#94a3b8]">
+              <span>{sentence.icon || "💬"}</span>
+              <span>{backLang}</span>
+            </div>
+
+            <div className="flex flex-1 items-center justify-center">
+              <div className="w-full rounded-xl border border-white/10 bg-black/10 p-4 text-lg font-extrabold leading-7">
+                {backText}
+              </div>
+            </div>
+
+            <div className="pt-4 text-[11px] font-bold text-[#94a3b8]">
+              Geri dönmek için dokun 👆
+            </div>
+          </div>
+        </div>
+      </button>
+
+      {germanVisible && (
         <button
           type="button"
-          onClick={onReveal}
-          className="flex min-h-[310px] w-full flex-col items-center justify-center text-center"
+          onClick={() => speakGerman(plainText(sentence.de))}
+          className="mx-auto mt-3 block rounded-full border border-sky-400/30 bg-sky-400/10 px-4 py-2 text-xs font-extrabold text-[#38bdf8]"
         >
-          <div className="mb-4 text-3xl">
-            {sentence.icon || "💬"}
-          </div>
-
-          <div className="text-xl font-extrabold leading-8">
-            {question}
-          </div>
-
-          <div className="mt-auto pt-8 text-[11px] font-bold text-[#94a3b8]">
-            Cevabı görmek için dokun 👆
-          </div>
+          🔊 Almancayı Dinle
         </button>
-      ) : (
-        <div className="flex min-h-[310px] flex-col items-center justify-center text-center">
-          {sentence.grammar && (
-            <div className="mb-4 w-full rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs font-bold text-[#eab308]">
-              💡 {sentence.grammar}
-            </div>
-          )}
-
-          <div className="w-full rounded-xl border border-sky-400/20 bg-sky-400/10 p-4">
-            <div className="text-lg font-extrabold">
-              {answer}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() =>
-              speakGerman(plainText(sentence.de))
-            }
-            className="mt-4 rounded-full border border-sky-400/30 bg-sky-400/10 px-4 py-2 text-xs font-extrabold text-[#38bdf8]"
-          >
-            🔊 Almancayı Dinle
-          </button>
-        </div>
       )}
     </div>
   );

@@ -328,6 +328,22 @@ export default function AccountPanel({
                 👑 Pro Planı İncele
               </button>
             )}
+
+            {access?.reason === "subscription" && (
+              <button
+                type="button"
+                onClick={() => {
+                  window.open(
+                    "https://almanca-cumle-srs-pro.lemonsqueezy.com/billing",
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
+                }}
+                className="mt-3 w-full rounded-xl border border-sky-400/25 bg-sky-400/10 px-3 py-3 text-xs font-black text-sky-200 transition hover:bg-sky-400/15"
+              >
+                ⚙️ Aboneliği Yönet
+              </button>
+            )}
           </section>
 
           <section className="mt-3">

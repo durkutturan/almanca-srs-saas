@@ -32,7 +32,7 @@ const PERSONAL_BACKUP_FORMAT =
 const SENTENCE_PACKAGE_FORMAT =
   "almanca-srs-sentence-package";
 
-const FILE_VERSION = 1;
+const FILE_VERSION = 2;
 
 type DataToolsProps = {
   appData: AppData;
@@ -60,6 +60,7 @@ type PackageSentence = {
   tr: string;
   cat: string;
   subcat: string;
+  subsubcat?: string;
   icon: string;
   grammar: string;
 };
@@ -123,6 +124,14 @@ function normalizeSubcategory(
     : cleanValue;
 }
 
+function normalizeSubsubcategory(
+  value: unknown,
+): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
+
 function cleanCategories(
   value: unknown,
 ): Category[] {
@@ -130,8 +139,7 @@ function cleanCategories(
     return [];
   }
 
-  const categoryMap =
-    new Map<string, Category>();
+  const categoryMap = new Map<string, Category>();
 
   value.forEach((item) => {
     if (!isRecord(item)) {
@@ -153,33 +161,66 @@ function cleanCategories(
         ? item.icon.trim()
         : "📁";
 
-    const subcats = Array.isArray(
-      item.subcats,
-    )
-      ? item.subcats
-          .filter(
-            (
-              subcategory,
-            ): subcategory is string =>
-              typeof subcategory ===
-              "string",
-          )
-          .map(normalizeSubcategory)
-          .filter(Boolean)
+    const subcats = Array.isArray(item.subcats)
+      ? Array.from(
+          new Set(
+            item.subcats
+              .filter(
+                (subcategory): subcategory is string =>
+                  typeof subcategory === "string",
+              )
+              .map(normalizeSubcategory)
+              .filter(Boolean),
+          ),
+        )
       : [];
 
-    const current =
-      categoryMap.get(name);
+    const rawSubsubcats = isRecord(item.subsubcats)
+      ? item.subsubcats
+      : {};
 
-    categoryMap.set(name, {
-      name,
-      icon: current?.icon || icon,
-      subcats: Array.from(
-        new Set([
-          ...(current?.subcats ?? []),
-          ...subcats,
-        ]),
-      ),
+    const subsubcats: Record<string, string[]> = {};
+    subcats.forEach((subcategory) => {
+      const rawChildren = rawSubsubcats[subcategory];
+      subsubcats[subcategory] = Array.isArray(rawChildren)
+        ? Array.from(
+            new Set(
+              rawChildren
+                .filter(
+                  (child): child is string =>
+                    typeof child === "string",
+                )
+                .map((child) => child.trim())
+                .filter(Boolean),
+            ),
+          )
+        : [];
+    });
+
+    const current = categoryMap.get(name);
+
+    if (!current) {
+      categoryMap.set(name, {
+        name,
+        icon,
+        subcats,
+        subsubcats,
+      });
+      return;
+    }
+
+    subcats.forEach((subcategory) => {
+      if (!current.subcats.includes(subcategory)) {
+        current.subcats.push(subcategory);
+      }
+
+      current.subsubcats ??= {};
+      current.subsubcats[subcategory] ??= [];
+      (subsubcats[subcategory] ?? []).forEach((child) => {
+        if (!current.subsubcats![subcategory].includes(child)) {
+          current.subsubcats![subcategory].push(child);
+        }
+      });
     });
   });
 
@@ -189,12 +230,9 @@ function cleanCategories(
 function cleanAppData(
   value: AppData,
 ): AppData {
-  const categories =
-    cleanCategories(value.categories);
-
+  const categories = cleanCategories(value.categories);
   const fallbackCategory =
-    categories[0]?.name ||
-    "İçe Aktarılanlar";
+    categories[0]?.name || "İçe Aktarılanlar";
 
   const normalizedCategories =
     categories.length > 0
@@ -204,68 +242,68 @@ function cleanAppData(
             name: fallbackCategory,
             icon: "📁",
             subcats: [],
+            subsubcats: {},
           },
         ];
 
   const categoryMap = new Map(
-    normalizedCategories.map(
-      (category) => [
-        category.name,
-        category,
-      ],
-    ),
+    normalizedCategories.map((category) => [
+      category.name,
+      category,
+    ]),
   );
 
   const sentences = value.sentences
     .filter(
       (sentence) =>
         sentence &&
-        typeof sentence.de ===
-          "string" &&
-        typeof sentence.tr ===
-          "string",
+        typeof sentence.de === "string" &&
+        typeof sentence.tr === "string",
     )
     .map((sentence) => {
       const categoryName =
-        typeof sentence.cat ===
-          "string" &&
+        typeof sentence.cat === "string" &&
         sentence.cat.trim()
           ? sentence.cat.trim()
           : fallbackCategory;
 
-      const subcategory =
-        normalizeSubcategory(
-          sentence.subcat,
-        );
+      const subcategory = normalizeSubcategory(
+        sentence.subcat,
+      );
+      const subsubcategory = subcategory
+        ? normalizeSubsubcategory(sentence.subsubcat)
+        : "";
 
       if (!categoryMap.has(categoryName)) {
         const category: Category = {
           name: categoryName,
           icon: "📁",
-          subcats: subcategory
-            ? [subcategory]
-            : [],
+          subcats: subcategory ? [subcategory] : [],
+          subsubcats: subcategory
+            ? {
+                [subcategory]: subsubcategory
+                  ? [subsubcategory]
+                  : [],
+              }
+            : {},
         };
-
-        categoryMap.set(
-          categoryName,
-          category,
-        );
-
-        normalizedCategories.push(
-          category,
-        );
+        categoryMap.set(categoryName, category);
+        normalizedCategories.push(category);
       } else if (subcategory) {
-        const category =
-          categoryMap.get(categoryName)!;
-
+        const category = categoryMap.get(categoryName)!;
+        if (!category.subcats.includes(subcategory)) {
+          category.subcats.push(subcategory);
+        }
+        category.subsubcats ??= {};
+        category.subsubcats[subcategory] ??= [];
         if (
-          !category.subcats.includes(
-            subcategory,
+          subsubcategory &&
+          !category.subsubcats[subcategory].includes(
+            subsubcategory,
           )
         ) {
-          category.subcats.push(
-            subcategory,
+          category.subsubcats[subcategory].push(
+            subsubcategory,
           );
         }
       }
@@ -274,30 +312,21 @@ function cleanAppData(
         ...sentence,
         cat: categoryName,
         subcat: subcategory,
-        icon:
-          sentence.icon?.trim() || "💬",
-        grammar:
-          sentence.grammar?.trim() || "",
-        srs:
-          sentence.srs ||
-          createNewSrs(),
+        subsubcat: subsubcategory,
+        icon: sentence.icon?.trim() || "💬",
+        grammar: sentence.grammar?.trim() || "",
+        srs: sentence.srs || createNewSrs(),
       };
     });
 
   return {
-    categories:
-      normalizedCategories,
+    categories: normalizedCategories,
     sentences,
     stats: {
-      streak:
-        value.stats?.streak ?? 0,
-      lastStudyDay:
-        value.stats?.lastStudyDay ??
-        null,
+      streak: value.stats?.streak ?? 0,
+      lastStudyDay: value.stats?.lastStudyDay ?? null,
       days: value.stats?.days ?? {},
-      notifyEnabled:
-        value.stats?.notifyEnabled ??
-        false,
+      notifyEnabled: value.stats?.notifyEnabled ?? false,
     },
   };
 }
@@ -348,14 +377,10 @@ function toPackageSentence(
     de: sentence.de,
     tr: sentence.tr,
     cat: sentence.cat,
-    subcat:
-      normalizeSubcategory(
-        sentence.subcat,
-      ),
-    icon:
-      sentence.icon?.trim() || "💬",
-    grammar:
-      sentence.grammar?.trim() || "",
+    subcat: normalizeSubcategory(sentence.subcat),
+    subsubcat: normalizeSubsubcategory(sentence.subsubcat),
+    icon: sentence.icon?.trim() || "💬",
+    grammar: sentence.grammar?.trim() || "",
   };
 }
 
@@ -400,6 +425,10 @@ function readSentencePackage(
           subcat:
             normalizeSubcategory(
               sentence.subcat,
+            ),
+          subsubcat:
+            normalizeSubsubcategory(
+              sentence.subsubcat,
             ),
           icon:
             typeof sentence.icon ===
@@ -455,75 +484,71 @@ function mergeSentencePackage(
   addedCount: number;
   skippedCount: number;
 } {
-  const categoryMap =
-    new Map<string, Category>();
+  const categoryMap = new Map<string, Category>();
 
-  cleanCategories(
-    currentData.categories,
-  ).forEach((category) => {
-    categoryMap.set(category.name, {
-      ...category,
-      subcats: [
-        ...category.subcats,
-      ],
-    });
-  });
+  cleanCategories(currentData.categories).forEach(
+    (category) => {
+      categoryMap.set(category.name, {
+        ...category,
+        subcats: [...category.subcats],
+        subsubcats: Object.fromEntries(
+          Object.entries(category.subsubcats ?? {}).map(
+            ([key, value]) => [key, [...value]],
+          ),
+        ),
+      });
+    },
+  );
 
-  cleanCategories(
-    packageData.categories,
-  ).forEach((category) => {
-    const current =
-      categoryMap.get(category.name);
+  cleanCategories(packageData.categories).forEach(
+    (category) => {
+      const current = categoryMap.get(category.name);
 
-    if (!current) {
-      categoryMap.set(
-        category.name,
-        {
+      if (!current) {
+        categoryMap.set(category.name, {
           ...category,
-          subcats: [
-            ...category.subcats,
-          ],
-        },
-      );
+          subcats: [...category.subcats],
+          subsubcats: Object.fromEntries(
+            Object.entries(category.subsubcats ?? {}).map(
+              ([key, value]) => [key, [...value]],
+            ),
+          ),
+        });
+        return;
+      }
 
-      return;
-    }
-
-    current.subcats = Array.from(
-      new Set([
-        ...current.subcats,
-        ...category.subcats,
-      ]),
-    );
-  });
+      category.subcats.forEach((subcategory) => {
+        if (!current.subcats.includes(subcategory)) {
+          current.subcats.push(subcategory);
+        }
+        current.subsubcats ??= {};
+        current.subsubcats[subcategory] ??= [];
+        (category.subsubcats?.[subcategory] ?? []).forEach(
+          (child) => {
+            if (!current.subsubcats![subcategory].includes(child)) {
+              current.subsubcats![subcategory].push(child);
+            }
+          },
+        );
+      });
+    },
+  );
 
   const existingKeys = new Set(
-    currentData.sentences.map(
-      (sentence) =>
-        [
-          sentence.de
-            .trim()
-            .toLocaleLowerCase(
-              "de-DE",
-            ),
-          sentence.tr
-            .trim()
-            .toLocaleLowerCase(
-              "tr-TR",
-            ),
-          sentence.cat.trim(),
-          normalizeSubcategory(
-            sentence.subcat,
-          ),
-        ].join("|||"),
+    currentData.sentences.map((sentence) =>
+      [
+        sentence.de.trim().toLocaleLowerCase("de-DE"),
+        sentence.tr.trim().toLocaleLowerCase("tr-TR"),
+        sentence.cat.trim(),
+        normalizeSubcategory(sentence.subcat),
+        normalizeSubsubcategory(sentence.subsubcat),
+      ].join("|||"),
     ),
   );
 
-  const existingIds =
-    currentData.sentences.map(
-      (sentence) => sentence.id,
-    );
-
+  const existingIds = currentData.sentences.map(
+    (sentence) => sentence.id,
+  );
   let nextId = Math.max(
     Date.now(),
     existingIds.length > 0
@@ -531,107 +556,95 @@ function mergeSentencePackage(
       : 1,
   );
 
-  const importedSentences:
-    Sentence[] = [];
-
+  const importedSentences: Sentence[] = [];
   let skippedCount = 0;
 
-  packageData.sentences.forEach(
-    (sentence) => {
-      const de = sentence.de.trim();
-      const tr = sentence.tr.trim();
+  packageData.sentences.forEach((sentence) => {
+    const de = sentence.de.trim();
+    const tr = sentence.tr.trim();
 
-      if (!de || !tr) {
-        skippedCount += 1;
-        return;
+    if (!de || !tr) {
+      skippedCount += 1;
+      return;
+    }
+
+    const categoryName =
+      sentence.cat.trim() || "İçe Aktarılanlar";
+    const subcategory = normalizeSubcategory(
+      sentence.subcat,
+    );
+    const subsubcategory = subcategory
+      ? normalizeSubsubcategory(sentence.subsubcat)
+      : "";
+
+    const key = [
+      de.toLocaleLowerCase("de-DE"),
+      tr.toLocaleLowerCase("tr-TR"),
+      categoryName,
+      subcategory,
+      subsubcategory,
+    ].join("|||");
+
+    if (existingKeys.has(key)) {
+      skippedCount += 1;
+      return;
+    }
+
+    existingKeys.add(key);
+
+    let category = categoryMap.get(categoryName);
+    if (!category) {
+      category = {
+        name: categoryName,
+        icon: "📁",
+        subcats: [],
+        subsubcats: {},
+      };
+      categoryMap.set(categoryName, category);
+    }
+
+    if (subcategory) {
+      if (!category.subcats.includes(subcategory)) {
+        category.subcats.push(subcategory);
       }
-
-      const categoryName =
-        sentence.cat.trim() ||
-        "İçe Aktarılanlar";
-
-      const subcategory =
-        normalizeSubcategory(
-          sentence.subcat,
-        );
-
-      const key = [
-        de.toLocaleLowerCase(
-          "de-DE",
-        ),
-        tr.toLocaleLowerCase(
-          "tr-TR",
-        ),
-        categoryName,
-        subcategory,
-      ].join("|||");
-
-      if (existingKeys.has(key)) {
-        skippedCount += 1;
-        return;
-      }
-
-      existingKeys.add(key);
-
-      const category =
-        categoryMap.get(
-          categoryName,
-        );
-
-      if (!category) {
-        categoryMap.set(
-          categoryName,
-          {
-            name: categoryName,
-            icon: "📁",
-            subcats: subcategory
-              ? [subcategory]
-              : [],
-          },
-        );
-      } else if (
-        subcategory &&
-        !category.subcats.includes(
-          subcategory,
+      category.subsubcats ??= {};
+      category.subsubcats[subcategory] ??= [];
+      if (
+        subsubcategory &&
+        !category.subsubcats[subcategory].includes(
+          subsubcategory,
         )
       ) {
-        category.subcats.push(
-          subcategory,
+        category.subsubcats[subcategory].push(
+          subsubcategory,
         );
       }
+    }
 
-      importedSentences.push({
-        id: nextId,
-        de,
-        tr,
-        cat: categoryName,
-        subcat: subcategory,
-        icon:
-          sentence.icon.trim() ||
-          "💬",
-        grammar:
-          sentence.grammar.trim(),
-        srs: createNewSrs(),
-      });
-
-      nextId += 1;
-    },
-  );
+    importedSentences.push({
+      id: nextId,
+      de,
+      tr,
+      cat: categoryName,
+      subcat: subcategory,
+      subsubcat: subsubcategory,
+      icon: sentence.icon.trim() || "💬",
+      grammar: sentence.grammar.trim(),
+      srs: createNewSrs(),
+    });
+    nextId += 1;
+  });
 
   return {
     data: {
-      categories:
-        Array.from(
-          categoryMap.values(),
-        ),
+      categories: Array.from(categoryMap.values()),
       sentences: [
         ...currentData.sentences,
         ...importedSentences,
       ],
       stats: currentData.stats,
     },
-    addedCount:
-      importedSentences.length,
+    addedCount: importedSentences.length,
     skippedCount,
   };
 }
@@ -903,6 +916,7 @@ export default function DataTools({
       "Türkçe",
       "Kategori",
       "Alt Kategori",
+      "Alt-alt Kategori",
       "Gramer Notu",
       "Durum",
       "Tekrar Sayısı",
@@ -922,6 +936,7 @@ export default function DataTools({
           sentence.tr,
           sentence.cat,
           sentence.subcat || "",
+          sentence.subsubcat || "",
           sentence.grammar || "",
           getStatus(
             sentence.srs.reps,
