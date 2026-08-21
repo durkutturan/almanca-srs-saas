@@ -33,6 +33,10 @@ const PRO_FEATURES = [
   "Yeni Pro özelliklerine erişim",
 ];
 
+const PRO_PRICE_LABEL =
+  process.env.NEXT_PUBLIC_PRO_PRICE_LABEL?.trim() ||
+  "100 TL / ay";
+
 function createCheckoutUrl({
   userId,
   userEmail,
@@ -270,7 +274,7 @@ export default function PlanPanel({
                     </div>
 
                     <div className="mt-1 text-[10px] text-amber-100/70">
-                      50 TL / ay
+                      {PRO_PRICE_LABEL}
                     </div>
                   </div>
 
