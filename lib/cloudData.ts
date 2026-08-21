@@ -17,6 +17,13 @@ export type AccountStatus =
   | "expired"
   | "canceled";
 
+export type PlanSource =
+  | "free"
+  | "trial"
+  | "subscription"
+  | "manual"
+  | null;
+
 export type UserAccount = {
   uid: string;
   email: string | null;
@@ -24,6 +31,8 @@ export type UserAccount = {
   photoURL: string | null;
   plan: UserPlan;
   status: AccountStatus;
+  planSource: PlanSource;
+  manualProEndsAt: number | null;
   trialStartedAt: number | null;
   trialEndsAt: number | null;
   createdAt: number | null;
@@ -32,9 +41,14 @@ export type UserAccount = {
 
 export type UserAccess = {
   level: UserPlan;
-  reason: "free" | "trial" | "subscription";
+  reason:
+    | "free"
+    | "trial"
+    | "subscription"
+    | "manual";
   trialActive: boolean;
   trialDaysLeft: number;
+  manualDaysLeft: number;
 };
 
 type CloudDocument = {
@@ -49,6 +63,8 @@ type AccountDocument = {
   photoURL?: string | null;
   plan?: UserPlan;
   status?: AccountStatus;
+  planSource?: PlanSource;
+  manualProEndsAt?: Timestamp | null;
   trialStartedAt?: Timestamp | null;
   trialEndsAt?: Timestamp | null;
   createdAt?: Timestamp | null;
@@ -81,10 +97,14 @@ function getAccountDocument(userId: string) {
 }
 
 function timestampToMillis(
-  value: Timestamp | null | undefined,
+  value: Timestamp | number | null | undefined,
 ): number | null {
-  return value instanceof Timestamp
-    ? value.toMillis()
+  if (value instanceof Timestamp) {
+    return value.toMillis();
+  }
+
+  return typeof value === "number"
+    ? value
     : null;
 }
 
@@ -109,6 +129,21 @@ function normalizeStatus(
   return "trial";
 }
 
+function normalizePlanSource(
+  value: unknown,
+): PlanSource {
+  if (
+    value === "free" ||
+    value === "trial" ||
+    value === "subscription" ||
+    value === "manual"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
 function mapAccountDocument(
   userId: string,
   data: AccountDocument,
@@ -120,6 +155,12 @@ function mapAccountDocument(
     photoURL: data.photoURL ?? null,
     plan: normalizePlan(data.plan),
     status: normalizeStatus(data.status),
+    planSource: normalizePlanSource(
+      data.planSource,
+    ),
+    manualProEndsAt: timestampToMillis(
+      data.manualProEndsAt,
+    ),
     trialStartedAt: timestampToMillis(
       data.trialStartedAt,
     ),
@@ -181,6 +222,16 @@ function isUserAccount(
       account.status === "expired" ||
       account.status === "canceled"
     ) &&
+    (
+      account.planSource === "free" ||
+      account.planSource === "trial" ||
+      account.planSource === "subscription" ||
+      account.planSource === "manual" ||
+      account.planSource === null
+    ) &&
+    isNullableNumber(
+      account.manualProEndsAt,
+    ) &&
     isNullableNumber(account.trialStartedAt) &&
     isNullableNumber(account.trialEndsAt) &&
     isNullableNumber(account.createdAt) &&
@@ -192,8 +243,47 @@ export function getUserAccess(
   account: UserAccount,
   now = Date.now(),
 ): UserAccess {
-  const trialEndsAt = account.trialEndsAt;
+  const manualActive =
+    account.planSource === "manual" &&
+    account.manualProEndsAt !== null &&
+    account.manualProEndsAt > now;
 
+  const manualDaysLeft = manualActive
+    ? Math.max(
+        1,
+        Math.ceil(
+          (account.manualProEndsAt! - now) /
+            (24 * 60 * 60 * 1000),
+        ),
+      )
+    : 0;
+
+  if (manualActive) {
+    return {
+      level: "pro",
+      reason: "manual",
+      trialActive: false,
+      trialDaysLeft: 0,
+      manualDaysLeft,
+    };
+  }
+
+  const subscriptionActive =
+    account.plan === "pro" &&
+    account.status === "active" &&
+    account.planSource !== "manual";
+
+  if (subscriptionActive) {
+    return {
+      level: "pro",
+      reason: "subscription",
+      trialActive: false,
+      trialDaysLeft: 0,
+      manualDaysLeft: 0,
+    };
+  }
+
+  const trialEndsAt = account.trialEndsAt;
   const trialActive =
     trialEndsAt !== null &&
     trialEndsAt > now;
@@ -208,24 +298,13 @@ export function getUserAccess(
       )
     : 0;
 
-  if (
-    account.plan === "pro" &&
-    account.status === "active"
-  ) {
-    return {
-      level: "pro",
-      reason: "subscription",
-      trialActive: false,
-      trialDaysLeft: 0,
-    };
-  }
-
   if (trialActive) {
     return {
       level: "pro",
       reason: "trial",
       trialActive: true,
       trialDaysLeft,
+      manualDaysLeft: 0,
     };
   }
 
@@ -234,6 +313,7 @@ export function getUserAccess(
     reason: "free",
     trialActive: false,
     trialDaysLeft: 0,
+    manualDaysLeft: 0,
   };
 }
 

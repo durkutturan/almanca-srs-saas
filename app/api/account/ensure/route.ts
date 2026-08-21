@@ -1,281 +1,314 @@
-import {
-  FieldValue,
-  Timestamp,
-} from "firebase-admin/firestore";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { Timestamp } from "firebase-admin/firestore";
 import {
   getAdminAuth,
   getAdminDatabase,
 } from "@/lib/firebaseAdmin";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TRIAL_DAYS = 14;
-const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY = 24 * 60 * 60 * 1000;
 
-type RequestBody = {
-  email?: unknown;
-  displayName?: unknown;
-  photoURL?: unknown;
-};
-
-type AccountDocument = {
-  uid?: unknown;
-  email?: unknown;
-  displayName?: unknown;
-  photoURL?: unknown;
-  plan?: unknown;
-  status?: unknown;
-  trialStartedAt?: unknown;
-  trialEndsAt?: unknown;
-  createdAt?: unknown;
-  updatedAt?: unknown;
-};
-
-function readNullableString(
-  value: unknown,
-): string | null {
-  return typeof value === "string"
-    ? value
-    : null;
-}
-
-function readPlan(
-  value: unknown,
-): "free" | "pro" {
-  return value === "pro" ? "pro" : "free";
-}
-
-function readStatus(
-  value: unknown,
-):
-  | "trial"
-  | "active"
-  | "expired"
-  | "canceled" {
+function millis(value: unknown) {
   if (
-    value === "trial" ||
-    value === "active" ||
-    value === "expired" ||
-    value === "canceled"
+    value &&
+    typeof value === "object" &&
+    "toMillis" in value &&
+    typeof (value as { toMillis?: unknown })
+      .toMillis === "function"
   ) {
-    return value;
+    return (
+      value as { toMillis: () => number }
+    ).toMillis();
   }
 
-  return "trial";
+  return null;
 }
 
-function timestampToMillis(
-  value: unknown,
-): number | null {
-  return value instanceof Timestamp
-    ? value.toMillis()
-    : null;
+async function getTrialSettings() {
+  try {
+    const snap =
+      await getAdminDatabase()
+        .doc("config/app")
+        .get();
+
+    const data = snap.exists
+      ? snap.data()
+      : null;
+
+    return {
+      enabled:
+        data?.trialEnabled !== false,
+      days: Math.max(
+        0,
+        Math.min(
+          365,
+          Number(data?.trialDays ?? 14) ||
+            0,
+        ),
+      ),
+    };
+  } catch {
+    return {
+      enabled: true,
+      days: 14,
+    };
+  }
 }
 
-function toResponseAccount(
-  userId: string,
-  data: AccountDocument,
+function getBillingStatus(
+  value: Record<string, unknown> | null,
+): string {
+  if (!value) {
+    return "";
+  }
+
+  const direct =
+    typeof value.status === "string"
+      ? value.status
+      : "";
+
+  const attributes =
+    value.attributes &&
+    typeof value.attributes === "object"
+      ? (value.attributes as Record<
+          string,
+          unknown
+        >)
+      : null;
+
+  const nested =
+    typeof attributes?.status === "string"
+      ? attributes.status
+      : "";
+
+  return (direct || nested)
+    .trim()
+    .toLowerCase();
+}
+
+function billingHasPaidAccess(
+  value: Record<string, unknown> | null,
+): boolean {
+  const status = getBillingStatus(value);
+
+  /*
+   * Lemon'da iptal edilmiş (cancelled/canceled) abonelik,
+   * dönem sonuna kadar erişim hakkını koruyabilir.
+   * Webhook akışımız da gerçek expiry gelene kadar Pro'yu korur.
+   */
+  return (
+    status === "active" ||
+    status === "cancelled" ||
+    status === "canceled"
+  );
+}
+
+function serializeAccount(
+  uid: string,
+  data: Record<string, unknown>,
 ) {
   return {
-    uid:
-      typeof data.uid === "string"
-        ? data.uid
-        : userId,
-    email: readNullableString(data.email),
-    displayName: readNullableString(
-      data.displayName,
-    ),
-    photoURL: readNullableString(
-      data.photoURL,
-    ),
-    plan: readPlan(data.plan),
-    status: readStatus(data.status),
-    trialStartedAt: timestampToMillis(
-      data.trialStartedAt,
-    ),
-    trialEndsAt: timestampToMillis(
-      data.trialEndsAt,
-    ),
-    createdAt: timestampToMillis(
-      data.createdAt,
-    ),
-    updatedAt: timestampToMillis(
-      data.updatedAt,
-    ),
+    uid,
+    email:
+      typeof data.email === "string"
+        ? data.email
+        : null,
+    displayName:
+      typeof data.displayName === "string"
+        ? data.displayName
+        : null,
+    photoURL:
+      typeof data.photoURL === "string"
+        ? data.photoURL
+        : null,
+    plan:
+      data.plan === "pro"
+        ? "pro"
+        : "free",
+    status:
+      data.status === "active" ||
+      data.status === "expired" ||
+      data.status === "canceled"
+        ? data.status
+        : "trial",
+    planSource:
+      typeof data.planSource === "string"
+        ? data.planSource
+        : null,
+    manualProEndsAt:
+      millis(data.manualProEndsAt),
+    trialStartedAt:
+      millis(data.trialStartedAt),
+    trialEndsAt:
+      millis(data.trialEndsAt),
+    createdAt:
+      millis(data.createdAt),
+    updatedAt:
+      millis(data.updatedAt),
   };
 }
 
-function readBearerToken(
-  request: Request,
-): string | null {
-  const authorization =
-    request.headers.get("authorization");
-
-  if (!authorization) {
-    return null;
-  }
-
-  const [scheme, token] =
-    authorization.split(" ");
-
-  if (
-    scheme?.toLowerCase() !== "bearer" ||
-    !token
-  ) {
-    return null;
-  }
-
-  return token;
-}
-
 export async function POST(
-  request: Request,
+  request: NextRequest,
 ) {
   try {
-    const idToken =
-      readBearerToken(request);
+    const authorization =
+      request.headers.get(
+        "authorization",
+      ) ?? "";
 
-    if (!idToken) {
+    const token =
+      authorization.startsWith(
+        "Bearer ",
+      )
+        ? authorization
+            .slice(7)
+            .trim()
+        : "";
+
+    if (!token) {
       return NextResponse.json(
         {
           error:
-            "Kimlik doğrulama bilgisi bulunamadı.",
+            "Oturum doğrulanamadı.",
         },
-        {
-          status: 401,
-        },
+        { status: 401 },
       );
     }
 
-    const decodedToken =
+    const decoded =
       await getAdminAuth().verifyIdToken(
-        idToken,
+        token,
       );
 
-    const userId = decodedToken.uid;
+    const body =
+      (await request.json().catch(
+        () => ({}),
+      )) as {
+        email?: string | null;
+        displayName?: string | null;
+        photoURL?: string | null;
+      };
 
-    let body: RequestBody = {};
+    const db = getAdminDatabase();
+    const ref = db.doc(
+      `users/${decoded.uid}/account/profile`,
+    );
 
-    try {
-      body =
-        (await request.json()) as RequestBody;
-    } catch {
-      body = {};
+    const existing =
+      await ref.get();
+
+    if (!existing.exists) {
+      const trial =
+        await getTrialSettings();
+
+      const now = Date.now();
+
+      await ref.set({
+        uid: decoded.uid,
+        email:
+          body.email ??
+          decoded.email ??
+          null,
+        displayName:
+          body.displayName ?? null,
+        photoURL:
+          body.photoURL ?? null,
+        plan: "free",
+        status:
+          trial.enabled &&
+          trial.days > 0
+            ? "trial"
+            : "expired",
+        planSource:
+          trial.enabled &&
+          trial.days > 0
+            ? "trial"
+            : "free",
+        trialStartedAt:
+          Timestamp.fromMillis(now),
+        trialEndsAt:
+          trial.enabled &&
+          trial.days > 0
+            ? Timestamp.fromMillis(
+                now +
+                  trial.days * DAY,
+              )
+            : Timestamp.fromMillis(
+                now - 1000,
+              ),
+        manualProEndsAt: null,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+    } else {
+      const billingSnap = await db
+        .doc(
+          `users/${decoded.uid}/billing/subscription`,
+        )
+        .get();
+
+      const billingData = billingSnap.exists
+        ? ((billingSnap.data() ?? {}) as Record<
+            string,
+            unknown
+          >)
+        : null;
+
+      const paidAccess =
+        billingHasPaidAccess(billingData);
+
+      await ref.set(
+        {
+          uid: decoded.uid,
+          email:
+            body.email ??
+            decoded.email ??
+            null,
+          displayName:
+            body.displayName ?? null,
+          photoURL:
+            body.photoURL ?? null,
+          ...(paidAccess
+            ? {
+                plan: "pro",
+                status: "active",
+                planSource: "subscription",
+                manualProEndsAt: null,
+              }
+            : {}),
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true },
+      );
     }
 
-    const database =
-      getAdminDatabase();
-
-    const accountReference =
-      database.doc(
-        `users/${userId}/account/profile`,
-      );
-
-    const account =
-      await database.runTransaction(
-        async (transaction) => {
-          const snapshot =
-            await transaction.get(
-              accountReference,
-            );
-
-          if (snapshot.exists) {
-            const existingData =
-              snapshot.data() as AccountDocument;
-
-            transaction.set(
-              accountReference,
-              {
-                uid: userId,
-                email:
-                  decodedToken.email ??
-                  readNullableString(
-                    body.email,
-                  ),
-                displayName:
-                  readNullableString(
-                    body.displayName,
-                  ),
-                photoURL:
-                  readNullableString(
-                    body.photoURL,
-                  ),
-                updatedAt:
-                  FieldValue.serverTimestamp(),
-              },
-              {
-                merge: true,
-              },
-            );
-
-            return toResponseAccount(
-              userId,
-              existingData,
-            );
-          }
-
-          const now = Timestamp.now();
-
-          const trialEndsAt =
-            Timestamp.fromMillis(
-              now.toMillis() +
-                TRIAL_DAYS * DAY_MS,
-            );
-
-          const newAccount = {
-            uid: userId,
-            email:
-              decodedToken.email ??
-              readNullableString(
-                body.email,
-              ),
-            displayName:
-              readNullableString(
-                body.displayName,
-              ),
-            photoURL:
-              readNullableString(
-                body.photoURL,
-              ),
-            plan: "free" as const,
-            status: "trial" as const,
-            trialStartedAt: now,
-            trialEndsAt,
-            createdAt: now,
-            updatedAt: now,
-          };
-
-          transaction.set(
-            accountReference,
-            newAccount,
-          );
-
-          return toResponseAccount(
-            userId,
-            newAccount,
-          );
-        },
-      );
+    const finalSnap =
+      await ref.get();
 
     return NextResponse.json({
-      account,
+      account: serializeAccount(
+        decoded.uid,
+        (finalSnap.data() ??
+          {}) as Record<
+          string,
+          unknown
+        >,
+      ),
     });
   } catch (error) {
     console.error(
-      "Hesap oluşturma/güncelleme hatası:",
+      "Account ensure error:",
       error,
     );
 
     return NextResponse.json(
       {
         error:
-          "Kullanıcı hesabı sunucuda doğrulanamadı.",
+          "Hesap bilgisi hazırlanamadı.",
       },
-      {
-        status: 500,
-      },
+      { status: 500 },
     );
   }
 }

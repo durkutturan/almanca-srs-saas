@@ -63,6 +63,10 @@ function getPlanTitle(
     return "Pro Plan";
   }
 
+  if (access?.reason === "manual") {
+    return "Pro Plan";
+  }
+
   if (access?.trialActive) {
     return "Pro Deneme";
   }
@@ -77,6 +81,10 @@ function getPlanDescription(
     access?.reason === "subscription"
   ) {
     return "Pro aboneliğin aktif.";
+  }
+
+  if (access?.reason === "manual") {
+    return "Pro kullanım hakkın aktif.";
   }
 
   if (access?.trialActive) {
@@ -280,8 +288,8 @@ export default function AccountPanel({
               </div>
 
               <span className="shrink-0 text-2xl">
-                {access?.reason ===
-                "subscription"
+                {access?.reason === "subscription" ||
+                access?.reason === "manual"
                   ? "👑"
                   : access?.trialActive
                     ? "✨"
@@ -312,14 +320,18 @@ export default function AccountPanel({
             </div>
 
             {access?.trialActive && (
-              <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] px-3 py-2.5 text-[10px] leading-4 text-amber-200">
-                Deneme süren bitince hesabın
-                otomatik olarak Free plana geçer.
-                Mevcut verilerin silinmez.
+              <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] px-3 py-2.5 text-amber-200">
+                <div className="text-xs font-black">
+                  ✨ Denemede {access.trialDaysLeft} gün kaldı
+                </div>
+                <div className="mt-1 text-[10px] leading-4">
+                  Süre bitince hesabın otomatik olarak Free plana geçer. Mevcut verilerin silinmez.
+                </div>
               </div>
             )}
 
-            {access?.reason !== "subscription" && (
+            {access?.reason !== "subscription" &&
+              access?.reason !== "manual" && (
               <button
                 type="button"
                 onClick={onOpenPlans}

@@ -279,17 +279,45 @@ function isValidDestination(
   );
 }
 
+type DynamicFreeLimits = {
+  maxSentences: number;
+  maxCategories: number;
+  maxSubcategoriesPerCategory: number;
+};
+
 export function useAppData(
   accessLevel: AccessLevel = "pro",
+  dynamicFreeLimits?: DynamicFreeLimits,
 ) {
   const [appData, setAppData] = useState<AppData>(cloneDefaultData);
   const [isLoaded, setIsLoaded] = useState(false);
   const appDataRef = useRef(appData);
 
-  const planLimits = useMemo(
-    () => getPlanLimits(accessLevel),
-    [accessLevel],
-  );
+  const planLimits = useMemo(() => {
+    const defaults = getPlanLimits(accessLevel);
+
+    if (
+      accessLevel !== "free" ||
+      !dynamicFreeLimits
+    ) {
+      return defaults;
+    }
+
+    return {
+      ...defaults,
+      maxSentences:
+        dynamicFreeLimits.maxSentences,
+      maxCategories:
+        dynamicFreeLimits.maxCategories,
+      maxSubcategoriesPerCategory:
+        dynamicFreeLimits.maxSubcategoriesPerCategory,
+    };
+  }, [
+    accessLevel,
+    dynamicFreeLimits?.maxSentences,
+    dynamicFreeLimits?.maxCategories,
+    dynamicFreeLimits?.maxSubcategoriesPerCategory,
+  ]);
 
   const commit = useCallback((nextData: AppData) => {
     appDataRef.current = nextData;

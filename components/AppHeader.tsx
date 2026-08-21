@@ -2,6 +2,8 @@ type AppHeaderProps = {
   title: string;
   dueCount?: number;
   onAccountClick?: () => void;
+  onAdminClick?: () => void;
+  isAdmin?: boolean;
   userPhotoUrl?: string | null;
   userName?: string | null;
   planLabel?: "FREE" | "PRO";
@@ -34,6 +36,8 @@ export default function AppHeader({
   title,
   dueCount = 0,
   onAccountClick,
+  onAdminClick,
+  isAdmin = false,
   userPhotoUrl,
   userName,
   planLabel = "FREE",
@@ -44,6 +48,18 @@ export default function AppHeader({
 
   return (
     <header className="relative flex min-h-[56px] shrink-0 items-center justify-center border-b border-white/10 bg-[#1e293b] px-16 py-3 text-center">
+      {isAdmin && onAdminClick && (
+        <button
+          type="button"
+          onClick={onAdminClick}
+          className="absolute left-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-violet-400/20 bg-violet-500/10 text-sm shadow-lg transition hover:bg-violet-500/20"
+          aria-label="Admin Paneli"
+          title="Admin Paneli"
+        >
+          🛡️
+        </button>
+      )}
+
       <div className="flex min-w-0 items-center justify-center gap-2">
         <span className="truncate text-lg font-extrabold">
           {title}

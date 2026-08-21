@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import AccountPanel from "@/components/AccountPanel";
+import AdminPanel from "@/components/AdminPanel";
 import PlanPanel from "@/components/PlanPanel";
 import AppHeader from "@/components/AppHeader";
 import AuthPanel from "@/components/AuthPanel";
@@ -18,6 +19,8 @@ import StatisticsPanel from "@/components/StatisticsPanel";
 import StudyPanel from "@/components/StudyPanel";
 import { useAppData } from "@/hooks/useAppData";
 import { useAuth } from "@/hooks/useAuth";
+import { useAdminAccess } from "@/hooks/useAdminAccess";
+import { useAppSettings } from "@/hooks/useAppSettings";
 import {
   ensureUserAccount,
   getUserAccess,
@@ -63,6 +66,11 @@ export default function Home() {
   ] = useState(false);
 
   const [
+    adminPanelOpen,
+    setAdminPanelOpen,
+  ] = useState(false);
+
+  const [
     previewPlan,
     setPreviewPlan,
   ] = useState<"free" | "pro" | null>(
@@ -89,6 +97,7 @@ export default function Home() {
           reason: "free",
           trialActive: false,
           trialDaysLeft: 0,
+          manualDaysLeft: 0,
         }
       : previewPlan === "pro"
         ? {
@@ -96,6 +105,7 @@ export default function Home() {
             reason: "subscription",
             trialActive: false,
             trialDaysLeft: 0,
+            manualDaysLeft: 0,
           }
         : null;
 
@@ -115,6 +125,11 @@ export default function Home() {
    */
   const accessLevel =
     effectiveAccess?.level ?? "free";
+
+  const {
+    settings,
+    reloadSettings,
+  } = useAppSettings();
 
   const cloudSaveTimer =
     useRef<ReturnType<typeof setTimeout> | null>(
@@ -148,7 +163,10 @@ export default function Home() {
     clearLocalData,
     totalDue,
     planLimits,
-  } = useAppData(accessLevel);
+  } = useAppData(
+    accessLevel,
+    settings.freeLimits,
+  );
 
   const latestAppDataRef = useRef(appData);
 
@@ -161,6 +179,8 @@ export default function Home() {
   } = useAuth();
 
   const userId = user?.uid ?? null;
+
+  const isAdmin = useAdminAccess(user);
 
   useEffect(() => {
     latestAppDataRef.current = appData;
@@ -379,6 +399,7 @@ export default function Home() {
       setCategoryManagerOpen(false);
       setAccountPanelOpen(false);
       setPlanPanelOpen(false);
+      setAdminPanelOpen(false);
       setActivePage("cumle");
     } catch (error) {
       console.error(
@@ -612,6 +633,10 @@ export default function Home() {
         onAccountClick={() =>
           setAccountPanelOpen(true)
         }
+        isAdmin={isAdmin}
+        onAdminClick={() =>
+          setAdminPanelOpen(true)
+        }
         userPhotoUrl={user.photoURL}
         userName={user.displayName}
         planLabel={
@@ -737,6 +762,7 @@ export default function Home() {
       <PlanPanel
         isOpen={planPanelOpen}
         access={effectiveAccess}
+        settings={settings}
         userId={user.uid}
         userEmail={user.email}
         userName={user.displayName}
@@ -744,6 +770,19 @@ export default function Home() {
           setPlanPanelOpen(false)
         }
       />
+
+      {isAdmin && (
+        <AdminPanel
+          isOpen={adminPanelOpen}
+          user={user}
+          onClose={() =>
+            setAdminPanelOpen(false)
+          }
+          onSettingsChanged={() => {
+            void reloadSettings();
+          }}
+        />
+      )}
 
       <CategoryManager
         isOpen={categoryManagerOpen}
