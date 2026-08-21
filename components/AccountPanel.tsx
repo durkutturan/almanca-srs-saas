@@ -319,7 +319,7 @@ export default function AccountPanel({
               </div>
             )}
 
-            {!isPro && (
+            {access?.reason !== "subscription" && (
               <button
                 type="button"
                 onClick={onOpenPlans}
